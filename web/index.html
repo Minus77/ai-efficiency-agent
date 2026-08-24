@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI 提效场景诊断 · 明辉家居建材</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+<div class="grain" aria-hidden="true"></div>
+
+<aside class="rail">
+  <header class="rail-head">
+    <p class="eyebrow">诊断报告</p>
+    <h1 class="rail-title" id="railClient">明辉家居建材</h1>
+    <p class="rail-meta">
+      <span class="chip chip-solid" id="railDelivery">完整诊断</span>
+      <span class="chip" id="railHeadcount">86 人</span>
+    </p>
+  </header>
+
+  <nav class="nav" id="nav" aria-label="报告章节">
+    <button class="nav-item is-active" data-view="overview"><span class="nav-idx">01</span><span class="nav-label">概览与假设</span></button>
+    <button class="nav-item" data-view="scenarios"><span class="nav-idx">02</span><span class="nav-label">场景清单</span></button>
+    <button class="nav-item" data-view="matrix"><span class="nav-idx">03</span><span class="nav-label">优先级矩阵</span></button>
+    <button class="nav-item" data-view="roi"><span class="nav-idx">04</span><span class="nav-label">分级 ROI</span></button>
+    <button class="nav-item" data-view="roadmap"><span class="nav-idx">05</span><span class="nav-label">90 天路线图</span></button>
+    <button class="nav-item" data-view="evidence"><span class="nav-idx">06</span><span class="nav-label">证据台账</span></button>
+    <button class="nav-item" data-view="review"><span class="nav-idx">07</span><span class="nav-label">反评审与缺口</span></button>
+    <button class="nav-item nav-item-alt" data-view="insights"><span class="nav-idx">附</span><span class="nav-label">经验判断</span></button>
+    <button class="nav-item" data-view="observability"><span class="nav-idx">系</span><span class="nav-label">运行简报</span></button>
+  </nav>
+
+  <footer class="rail-foot">
+    <dl class="legend">
+      <dt><i class="dot dot-a"></i>A 级</dt><dd>单据/系统痕迹 · 点估+区间</dd>
+      <dt><i class="dot dot-b"></i>B 级</dt><dd>多方交叉 · 仅区间</dd>
+      <dt><i class="dot dot-c"></i>C 级</dt><dd>单方陈述 · 仅方向</dd>
+    </dl>
+    <p class="rail-asof" id="railAsOf"></p>
+  </footer>
+</aside>
+
+<main class="stage" id="stage">
+  <div class="loading" id="loading"><span></span><span></span><span></span></div>
+</main>
+
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>
