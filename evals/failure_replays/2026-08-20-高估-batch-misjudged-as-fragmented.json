@@ -1,0 +1,10 @@
+{
+  "replay_id": "fr-001",
+  "failure_type": "高估",
+  "reported_at": "2026-08-20",
+  "symptom": "按单次时长判定作业形态，导致一次性做完的批量录入被误判为真碎片，收益被系统性低估",
+  "root_cause": "折现判据错误地用『单次是否 ≥30 分钟』，而非『是否在同一时间窗内聚集』",
+  "fix": "judge_work_form 改为按时间窗聚簇判定；窗内合计 ≥30 分钟即视为批量作业，全额折现",
+  "regression_case": "g-001",
+  "status": "fixed"
+}

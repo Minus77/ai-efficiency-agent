@@ -116,9 +116,13 @@ def roi_estimate(
     )
 
     # 真碎片：不进 ROI，仅定性（§3.2）
+    # 不进 ROI 意味着**任何金额字段都不得残留**——只给实施成本却不给收益会误导读者。
     if factor == 0.0:
         base.direction_only = True
         base.amount = None
+        base.tiers = []
+        base.implementation_cost_low = None
+        base.implementation_cost_high = None
         base.calculation_trace.append("真碎片作业不计入 ROI，仅作定性描述；若为批量作业须用时间戳重新判定")
         return ToolResult.success({"roi": base}, note="真碎片：不给金额，仅定性")
 
