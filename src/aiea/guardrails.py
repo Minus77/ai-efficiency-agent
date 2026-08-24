@@ -191,6 +191,11 @@ _QUANT = re.compile(r"\d+(\.\d+)?\s*(%|小时|分钟|个月|天|次|条|万|元)
 _PAYBACK = re.compile(r"\d+(\.\d+)?\s*个月\s*回本|回本周期")
 
 
+def contains_money(text: str) -> bool:
+    """§7/§11.6：专家判断区不得出现具体 ROI 数字。"""
+    return bool(_MONEY.search(text))
+
+
 @dataclass
 class GuardianVerdict:
     approved: bool
