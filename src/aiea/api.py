@@ -42,12 +42,22 @@ class FeedbackIn(BaseModel):
         return v
 
 
-def create_app(*, root: Path | str = "workspace") -> FastAPI:
+def create_app(*, root: Path | str = "workspace", use_llm: bool = False) -> FastAPI:
+    """构建应用。
+
+    use_llm=False（默认）：S5 反评审与洞察用定稿内容，完全离线、可复现。
+    use_llm=True：改由 judge 档模型现场生成，需要 AIEA_API_KEY。
+    """
     app = FastAPI(title="中小企业 AI 提效场景识别 Agent", version="1.0")
 
     @lru_cache(maxsize=1)
     def report() -> dict[str, Any]:
-        return run_seed_diagnosis(root=root)
+        llm = None
+        if use_llm:
+            from .llm import LLMClient
+
+            llm = LLMClient()
+        return run_seed_diagnosis(root=root, llm=llm)
 
     def card_of(cid: str) -> dict[str, Any]:
         return next(c for c in report()["cards"] if c["card_id"] == cid)
@@ -221,8 +231,10 @@ def create_app(*, root: Path | str = "workspace") -> FastAPI:
     @app.get("/api/counter-review")
     def counter_review() -> dict[str, Any]:
         r = report()
+        sources = {i.get("source", "curated") for i in r["counter_review"]}
         return {
             "items": r["counter_review"],
+            "generated_by": "模型现场生成" if "llm" in sources else "定稿内容（未启用模型生成）",
             "isolation": r["counter_review_isolation"],
             "known_limit": "反评审只能审内部一致性，审不了真伪，不能替代人工终审。",
         }
@@ -276,4 +288,6 @@ def create_app(*, root: Path | str = "workspace") -> FastAPI:
     return app
 
 
-app = create_app()
+import os
+
+app = create_app(use_llm=os.getenv("AIEA_USE_LLM", "").lower() in ("1", "true", "yes"))

@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: aiea
+Version: 1.0.0
+Summary: 中小企业 AI 提效场景识别 Agent
+Requires-Python: >=3.11
+Requires-Dist: fastapi==0.115.6
+Requires-Dist: uvicorn==0.34.0
+Requires-Dist: pydantic==2.10.4
+Requires-Dist: httpx[socks]==0.28.1
+Requires-Dist: socksio==1.0.0
+Provides-Extra: dev
+Requires-Dist: pytest==8.3.4; extra == "dev"

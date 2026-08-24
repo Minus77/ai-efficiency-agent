@@ -371,7 +371,7 @@ async function viewReview() {
       "反评审只看任务卡与证据台账，不看主分析过程——否则它会认同同一个错误前提。")}
 
     <section class="block">
-      <h3 class="block-t">针对 Top 场景的最强反驳</h3>
+      <h3 class="block-t">针对 Top 场景的最强反驳 <span class="badge badge-form">${esc(r.generated_by || "定稿内容")}</span></h3>
       <p class="block-s">${esc(r.isolation)}</p>
       ${r.items.map((i) => `
         <div class="card">
