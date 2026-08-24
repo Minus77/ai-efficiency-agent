@@ -43,6 +43,13 @@ class CostBreakerTripped(RuntimeError):
     """熔断：挂起当前诊断并要求归因，不允许简单提高阈值了事（§13.2）。"""
 
 
+class LLMResponseFormatError(ValueError):
+    """模型未返回可解析结构。
+
+    这属于模型输出质量问题（可回退），不同于配置或依赖缺失（必须冒泡）。
+    """
+
+
 @dataclass
 class LLMUsage:
     model: str
@@ -119,14 +126,15 @@ class LLMClient:
         )
 
     def _check_breakers(self) -> None:
-        if self.session_limit_usd and self.total_usd >= self.session_limit_usd:
+        # 用 is not None 判断：阈值 0.0 表示"立即熔断"，是合法配置而非未设置
+        if self.session_limit_usd is not None and self.total_usd >= self.session_limit_usd:
             self._trip(
                 f"单次诊断累计成本 ${self.total_usd:.4f} 已达上限 ${self.session_limit_usd:.2f}",
             )
         now = time.time()
         self._hour_window = [(t, c) for t, c in self._hour_window if now - t < 3600]
         hourly = sum(c for _, c in self._hour_window)
-        if self.hour_limit_usd and hourly >= self.hour_limit_usd:
+        if self.hour_limit_usd is not None and hourly >= self.hour_limit_usd:
             self._trip(f"近一小时累计成本 ${hourly:.4f} 已达上限 ${self.hour_limit_usd:.2f}")
 
     def _trip(self, reason: str) -> None:
@@ -220,6 +228,61 @@ class LLMClient:
         return parse_json_block(out.text)
 
 
+def salvage_json_objects(text: str) -> list[dict[str, Any]]:
+    """从被截断的 JSON 文本中救回已经完整的对象。
+
+    模型撞上 max_tokens 时返回的是合法前缀 + 半个对象。整批丢弃等于浪费
+    已经付费拿到的内容，也会让"模型有话说"看起来像"模型没话说"。
+
+    做法：按括号配平扫描，收集所有能完整闭合的对象，再只保留最外层的那些
+    （被包含在其他对象里的会被丢弃，避免同一内容重复出现）。
+    """
+    fenced = re.search(r"```(?:json)?\s*(.+)", text, re.DOTALL)
+    body = fenced.group(1) if fenced else text
+
+    found: list[tuple[int, int, dict[str, Any]]] = []
+    stack: list[int] = []
+    in_string = False
+    escaped = False
+
+    for idx, ch in enumerate(body):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            stack.append(idx)
+        elif ch == "}" and stack:
+            begin = stack.pop()
+            try:
+                parsed = json.loads(body[begin : idx + 1])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                found.append((begin, idx, parsed))
+
+    # 只保留最外层对象：若某对象的区间被另一个对象包含，则丢弃它
+    outermost = [
+        (b, e, obj)
+        for (b, e, obj) in found
+        if not any(ob < b and oe > e for (ob, oe, _) in found)
+    ]
+    objects = [obj for (_, _, obj) in sorted(outermost, key=lambda t: t[0])]
+
+    # 完整响应形如 {"rebuttals": [...]}：展开其中的对象列表
+    if len(objects) == 1:
+        for value in objects[0].values():
+            if isinstance(value, list) and value and all(isinstance(v, dict) for v in value):
+                return value
+    return objects
+
+
 def parse_json_block(text: str) -> dict[str, Any]:
     fenced = re.search(r"```(?:json)?\s*(.+?)\s*```", text, re.DOTALL)
     candidate = fenced.group(1) if fenced else text
@@ -233,4 +296,4 @@ def parse_json_block(text: str) -> dict[str, Any]:
     try:
         return json.loads(candidate)
     except json.JSONDecodeError as err:
-        raise ValueError(f"模型未返回可解析 JSON：{text[:200]}") from err
+        raise LLMResponseFormatError(f"模型未返回可解析 JSON：{text[:200]}") from err

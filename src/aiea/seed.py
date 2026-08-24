@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .agents import generate_counter_review, generate_insights
 from .evidence import Claim, adjudicate, closure_rate, grade_of, judge_work_form
 from .guardrails import guardian_review, scan_attachment
 from .knowledge import KnowledgeBase, Library, playbook_propose
@@ -56,8 +57,17 @@ def _minutes_between(a: str, b: str) -> float:
     return (datetime.fromisoformat(b) - datetime.fromisoformat(a)).total_seconds() / 60.0
 
 
-def run_seed_diagnosis(*, root: Path | str = "workspace", client_dir: Path | None = None) -> dict[str, Any]:
-    """执行一次完整诊断并返回交付物结构。"""
+def run_seed_diagnosis(
+    *,
+    root: Path | str = "workspace",
+    client_dir: Path | None = None,
+    llm: Any | None = None,
+) -> dict[str, Any]:
+    """执行一次完整诊断并返回交付物结构。
+
+    llm=None 时 S5 的反评审与洞察使用本文件内的定稿内容（确定性、可离线复现）；
+    传入 LLMClient 时改由 judge 档模型现场生成，并经 agents.py 的校验过滤。
+    """
     materials_dir = client_dir or CLIENT_DIR
     if not (materials_dir / "tickets.csv").exists():
         write_all(materials_dir)
@@ -566,7 +576,7 @@ def run_seed_diagnosis(*, root: Path | str = "workspace", client_dir: Path | Non
         key=lambda c: roi_map[c["card_id"]]["tiers"][0]["monthly_saving_low"] or 0,
         reverse=True,
     )[:3]
-    counter_review = [
+    curated_counter_review = [
         {
             "card_id": "s-04",
             "rebuttal": (
@@ -595,10 +605,17 @@ def run_seed_diagnosis(*, root: Path | str = "workspace", client_dir: Path | Non
             "resolution": "该场景已落入『不做』象限；建议先向客户确认 ERP 更换计划再议。",
         },
     ]
+    if llm is not None:
+        counter_review = generate_counter_review(
+            cards, evidence, llm=llm,
+            reasoning_chain="（存在但按设计被丢弃，反评审拿不到主 Agent 推理链）",
+        )
+    else:
+        counter_review = [{**item, "source": "curated"} for item in curated_counter_review]
 
     # ---------------------------------------------------------------- 专家判断（无金额）
     insights = []
-    for statement, basis, verify in [
+    curated_insight_specs = [
         (
             "真正的瓶颈可能不在客服人手，而在销售没把交付时间同步下来，导致客户反复追问送货时间。",
             "工单分类里「送货时间」占比最高，且纪要中销售提出希望客服能看到发货进度——两侧信息对不上。",
@@ -614,12 +631,30 @@ def run_seed_diagnosis(*, root: Path | str = "workspace", client_dir: Path | Non
             "三名销售各自维护 Excel、无版本记录，任何量化都无从下手；这类『看不见的地方』常年被低估。",
             "让一名销售配合记录 3 个工作日的实际操作，即可把这块从盲区变成 A 级证据。",
         ),
-    ]:
+    ]
+    if llm is not None:
+        generated = generate_insights(cards, llm=llm)
+        candidate_specs = [
+            (g["statement"], g["basis"], g["verification_suggestion"]) for g in generated
+        ]
+    else:
+        candidate_specs = curated_insight_specs
+
+    for statement, basis, verify in candidate_specs:
+        # 无论来源，一律过 insight_propose 的金额检查后才入库
         r = TOOL_REGISTRY["insight_propose"](
             ctx, statement=statement, basis=basis, verification_suggestion=verify
         )
-        assert r.ok, r.note
+        if not r.ok:
+            continue
         insights.append(r.data["insight"])
+    if not insights:
+        for statement, basis, verify in curated_insight_specs:
+            r = TOOL_REGISTRY["insight_propose"](
+                ctx, statement=statement, basis=basis, verification_suggestion=verify
+            )
+            if r.ok:
+                insights.append(r.data["insight"])
 
     # ---------------------------------------------------------------- 门禁与记分卡
     render = TOOL_REGISTRY["report_render"](ctx, cards=cards)
