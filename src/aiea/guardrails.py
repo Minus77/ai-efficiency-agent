@@ -44,6 +44,8 @@ _ALLOWED_SUFFIXES: tuple[str, ...] = (
 )
 _MACRO_SUFFIXES: tuple[str, ...] = (".xlsm", ".xlsb", ".docm", ".pptm")
 _FORMULA_PATTERN = re.compile(r"^\s*[=+\-@]|cmd\s*\||DDE\s*\(|HYPERLINK\s*\(", re.IGNORECASE | re.MULTILINE)
+# 公式注入只在表格类格式成立；对 .md/.txt 施加此检查会误伤正常分隔线
+_TABULAR_SUFFIXES: tuple[str, ...] = (".csv", ".tsv", ".xlsx", ".xls")
 
 MAX_FILE_BYTES = 20 * 1024 * 1024
 MAX_BATCH_FILES = 40
@@ -103,7 +105,7 @@ def scan_attachment(*, filename: str, content: str, size_bytes: int | None = Non
             note=f"单文件超过 {MAX_FILE_BYTES // (1024 * 1024)}MB 上限，已拒收。",
             origin=filename,
         )
-    if _FORMULA_PATTERN.search(content or ""):
+    if suffix in _TABULAR_SUFFIXES and _FORMULA_PATTERN.search(content or ""):
         return ScanVerdict(
             allow_as_data=False,
             note="检出公式/DDE 样式内容：Excel 公式仅取值不求值，该文件已拒解析，请导出为纯值 CSV。",

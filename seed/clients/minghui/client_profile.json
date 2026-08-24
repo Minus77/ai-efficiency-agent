@@ -1,0 +1,74 @@
+{
+  "client_name": "明辉家居建材有限公司",
+  "short_name": "明辉家居建材",
+  "industry": "家居建材分销 / 零售",
+  "headcount": 86,
+  "as_of": "2026-08-20",
+  "contact_role": "运营负责人",
+  "departments": [
+    "客服",
+    "财务",
+    "销售"
+  ],
+  "excluded": [
+    "仓储作业",
+    "门店导购"
+  ],
+  "background": "区域性家居建材分销商，线上商城 + 3 家线下门店。近一年线上单量增长较快，客服与财务的人工处理压力集中显现。老板的原话是「都说该上 AI 了，但不知道从哪儿下手」。",
+  "admission": {
+    "has_exportable_system": true,
+    "probe_sample": {
+      "has_records": true,
+      "has_timestamps": true,
+      "structured": true
+    },
+    "verdict": "A 级可达 → 正常受理，走完整诊断"
+  },
+  "systems": [
+    {
+      "name": "售后工单系统",
+      "used_by": "客服组（3 人）",
+      "exportable": true,
+      "has_timestamps": true,
+      "api": false
+    },
+    {
+      "name": "商城后台",
+      "used_by": "运营 + 销售",
+      "exportable": true,
+      "has_timestamps": true,
+      "api": true
+    },
+    {
+      "name": "进销存/ERP",
+      "used_by": "仓储 + 财务",
+      "exportable": true,
+      "has_timestamps": false,
+      "api": false,
+      "integration_gap": "仅能导出汇总，明细需申请权限"
+    },
+    {
+      "name": "对账表（本地 Excel + 云盘版本记录）",
+      "used_by": "财务（2 人）",
+      "exportable": true,
+      "has_timestamps": true,
+      "api": false
+    },
+    {
+      "name": "微信 / 企业微信",
+      "used_by": "全员",
+      "exportable": false,
+      "has_timestamps": false,
+      "api": false,
+      "integration_gap": "聊天记录无法批量导出，只能人工截图"
+    },
+    {
+      "name": "销售台账（各人自维护的 Excel）",
+      "used_by": "销售（3 人）",
+      "exportable": false,
+      "has_timestamps": false,
+      "api": false,
+      "integration_gap": "无统一存放，无版本记录 —— 本次未获取"
+    }
+  ]
+}

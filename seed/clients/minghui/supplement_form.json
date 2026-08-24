@@ -1,0 +1,94 @@
+{
+  "form_id": "supp-001",
+  "note": "R2 轻量补数表：5–8 个纯数字填空，不做开放式提问；销售台账导不出时的兜底",
+  "filled_by": [
+    {
+      "role": "销售负责人",
+      "name_redacted": "赵**",
+      "filled_at": "2026-08-18"
+    },
+    {
+      "role": "运营负责人",
+      "name_redacted": "刘**",
+      "filled_at": "2026-08-18"
+    }
+  ],
+  "items": [
+    {
+      "question": "销售每天大约要把多少条跟单信息从微信抄进表格？",
+      "answers": [
+        {
+          "role": "销售负责人",
+          "value": 18
+        },
+        {
+          "role": "运营负责人",
+          "value": 25
+        }
+      ],
+      "unit": "条/天"
+    },
+    {
+      "question": "抄一条大约花几分钟？",
+      "answers": [
+        {
+          "role": "销售负责人",
+          "value": 2.5
+        },
+        {
+          "role": "运营负责人",
+          "value": 3.0
+        }
+      ],
+      "unit": "分钟/条"
+    },
+    {
+      "question": "一周有几天需要做这件事？",
+      "answers": [
+        {
+          "role": "销售负责人",
+          "value": 5
+        },
+        {
+          "role": "运营负责人",
+          "value": 5
+        }
+      ],
+      "unit": "天/周"
+    },
+    {
+      "question": "找历史报价平均要多久？",
+      "answers": [
+        {
+          "role": "销售负责人",
+          "value": 6
+        },
+        {
+          "role": "运营负责人",
+          "value": 8
+        }
+      ],
+      "unit": "分钟/次"
+    },
+    {
+      "question": "每天大约找几次历史报价？",
+      "answers": [
+        {
+          "role": "销售负责人",
+          "value": 3
+        },
+        {
+          "role": "运营负责人",
+          "value": 4
+        }
+      ],
+      "unit": "次/天"
+    }
+  ],
+  "self_reported_work_form": {
+    "activity": "销售跟单信息转录",
+    "claim": "batch",
+    "verbatim": "我们一般是晚上收工前一次性录完",
+    "handling": "自述留作参考，不直接采信；无台账导出无法用时间戳验证聚集性"
+  }
+}
