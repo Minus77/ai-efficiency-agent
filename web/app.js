@@ -8,7 +8,11 @@
 
 /* 当前客户（tenant）。所有报告类请求都走 /api/clients/<slug>/...，
  * 因此切换客户只需换 slug + 清缓存，视图代码完全复用。 */
-const state = { slug: null, client: null, clients: [], materials: [], role: "R1" };
+const state = {
+  slug: null, client: null, clients: [], materials: [], role: "R1",
+  // 连接器页的二级菜单：null = 停在类别一级，非空 = 已点进某个类别看明细
+  connCat: null,
+};
 
 const PATHS = {
   overview: "overview", scenarios: "scenarios", matrix: "matrix", roi: "roi",
@@ -799,24 +803,181 @@ function viewNoClient() {
     </div>`;
 }
 
-/* ============================ 系统连接器 ============================ */
+/* ============================ 系统连接器（两级菜单） ============================ */
 const GRADE_HINT = {
   A: "可达 A 级：有单条记录 + 时间戳，能算清频次与耗时",
   B: "上限 B 级：有明细但无时间戳，ROI 只能给区间",
   C: "上限 C 级：只有汇总，仅用于定位痛点，不得用于量化",
 };
 
-// 分组顺序按"最容易拿到高等级证据"排：先给顾问最该优先接的
+// 一级菜单顺序按"最容易拿到高等级证据"排：把最该优先接的放前面
 const CAT_ORDER = ["工单", "OA审批", "电商", "CRM", "ERP", "IM", "其他"];
-const CAT_NOTE = {
-  工单: "最容易拿到 A 级证据：工单含创建/首响/解决多个时间戳",
-  OA审批: "审批实例有提交与完成双时间戳，可达 A 级——这是它与聊天记录的关键差异",
-  电商: "订单含下单与支付时间戳，用于与对账、开票环节交叉核对",
-  CRM: "跟单活动记录，用于量化销售侧的重复录入",
-  ERP: "多数部署只开放汇总或无操作时间戳的明细，因此止步 B 级",
-  IM: "三家平台都不开放聊天记录批量导出，只能拿会话量汇总（C 级）",
-  其他: "通用类别模板：客户系统不在上述清单时的兜底",
+
+const CAT_META = {
+  工单: {
+    icon: "M3 2h10v12H3zM5 5h6v1.2H5zM5 8h6v1.2H5zM5 11h4v1.2H5z",
+    note: "工单含创建 / 首响 / 解决多个时间戳，最容易拿到 A 级证据",
+  },
+  OA审批: {
+    icon: "M4 1h8v14H4zM6 7.5l1.6 1.6L11 5.7l-.9-.9-2.5 2.5-.7-.7z",
+    note: "审批实例有提交与完成双时间戳，可达 A 级——这是它与聊天记录的关键差异",
+  },
+  电商: {
+    icon: "M2 4h12l-1 8H3zM5.5 6.5h5v1.2h-5zM6 1.5h4v1.6H6z",
+    note: "订单含下单与支付时间戳，用于与对账、开票环节交叉核对",
+  },
+  CRM: {
+    icon: "M8 2a3 3 0 110 6 3 3 0 010-6zM2 14c0-2.8 2.7-4.5 6-4.5s6 1.7 6 4.5z",
+    note: "跟单活动记录，用于量化销售侧的重复录入",
+  },
+  ERP: {
+    icon: "M2 3h5v5H2zM9 3h5v5H9zM2 9h5v4H2zM9 9h5v4H9z",
+    note: "多数部署只开放汇总或无操作时间戳的明细，因此止步 B 级",
+  },
+  IM: {
+    icon: "M2 3h12v8H6l-4 3z",
+    note: "三家平台都不开放聊天记录批量导出，只能拿会话量汇总（C 级）",
+  },
+  其他: {
+    icon: "M8 1.5l6 3.2v6.6L8 14.5 2 11.3V4.7z",
+    note: "通用类别模板：客户系统不在上述清单时的兜底",
+  },
 };
+
+// 品牌标识：用首字 + 品牌色做色块，避免引入外部图片资源（也不必处理商标授权）
+const BRAND = {
+  钉钉: { text: "钉", bg: "#3296fa" },
+  飞书: { text: "飞", bg: "#3370ff" },
+  企业微信: { text: "企", bg: "#07c160" },
+  Zendesk: { text: "Z", bg: "#03363d" },
+  Udesk: { text: "U", bg: "#2a7fff" },
+  "Jira Service Management": { text: "J", bg: "#0052cc" },
+  Salesforce: { text: "S", bg: "#00a1e0" },
+  销售易: { text: "销", bg: "#e8442e" },
+  HubSpot: { text: "H", bg: "#ff7a59" },
+  金蝶: { text: "金", bg: "#0067b1" },
+  用友: { text: "用", bg: "#e60012" },
+  管家婆: { text: "管", bg: "#f59a23" },
+  有赞: { text: "赞", bg: "#e64340" },
+  微盟: { text: "微", bg: "#2b6de5" },
+  "淘宝/天猫": { text: "淘", bg: "#ff5000" },
+  Shopify: { text: "S", bg: "#5e8e3e" },
+};
+
+const brandMark = (vendor, size = "") => {
+  const b = BRAND[vendor] || { text: (vendor || "?").slice(0, 1), bg: "#8f959e" };
+  return `<span class="brand ${size}" style="background:${b.bg}" title="${esc(vendor)}">${esc(b.text)}</span>`;
+};
+
+/** 一级菜单：只给类别卡片 + 品牌标识，不铺开明细。 */
+function connCategoryGrid(groups, boundMap) {
+  const ordered = CAT_ORDER.filter((c) => groups.has(c))
+    .concat([...groups.keys()].filter((c) => !CAT_ORDER.includes(c)));
+
+  return ordered.map((cat) => {
+    const items = groups.get(cat) || [];
+    const meta = CAT_META[cat] || { icon: CAT_META["其他"].icon, note: "" };
+    const boundHere = items.filter((s) => boundMap.has(s.key)).length;
+    const grade = items.length ? String(items[0].max_evidence_grade || "C") : "C";
+    const vendors = items.filter((s) => s.vendor);
+
+    return `
+    <button class="cat-card" data-cat="${esc(cat)}">
+      <div class="cat-top">
+        <span class="cat-ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="${meta.icon}"/></svg></span>
+        <div class="cat-title">
+          <h3>${esc(cat)}</h3>
+          <p>${items.length} 个可选</p>
+        </div>
+        <span class="bdg bdg-${grade.toLowerCase()}">${esc(grade)} 级</span>
+      </div>
+
+      <p class="cat-note">${esc(meta.note)}</p>
+
+      <div class="cat-brands">
+        ${vendors.length
+          ? vendors.map((s) => brandMark(s.vendor, "brand-sm")).join("")
+          : `<span class="cat-generic">通用模板</span>`}
+      </div>
+
+      <div class="cat-foot">
+        ${boundHere
+          ? `<span class="bdg bdg-ok">已连接 ${boundHere}</span>`
+          : `<span class="cat-hint">未连接</span>`}
+        <span class="cat-more">查看明细 \u203a</span>
+      </div>
+    </button>`;
+  }).join("");
+}
+
+/** 二级菜单：某个类别下的产品明细卡。 */
+function connDetailCard(spec, boundMap) {
+  const b = boundMap.get(spec.key);
+  const g = String(spec.max_evidence_grade || "C");
+  const title = spec.vendor || spec.name;
+
+  // 搜索用关键词串：厂商、产品全名、内部 key 都能命中
+  const hay = [spec.vendor, spec.product, spec.name, spec.key]
+    .filter(Boolean).join(" ").toLowerCase();
+
+  return `
+  <div class="conn-card ${b ? "is-bound" : ""}" data-hay="${esc(hay)}">
+    <div class="conn-h">
+      <div class="conn-ident">
+        ${brandMark(title)}
+        <div class="conn-title">
+          <h3>${esc(title)}</h3>
+          <p>${esc(spec.product || spec.description || "")}</p>
+        </div>
+      </div>
+      <div class="conn-badges">
+        <span class="bdg bdg-${g.toLowerCase()}">${esc(g)} 级</span>
+        ${b ? `<span class="bdg bdg-ok">已连接</span>` : ""}
+      </div>
+    </div>
+
+    <p class="hint hint-info">${esc(GRADE_HINT[g] || "")}</p>
+
+    <div class="conn-rows">
+      <div class="conn-row">
+        <span class="conn-k">能算的指标</span>
+        <span class="conn-v">${(spec.metrics || []).map(esc).join("、")}</span>
+      </div>
+      <div class="conn-row">
+        <span class="conn-k">只读范围</span>
+        <span class="conn-v mono">${(spec.scopes || []).map(esc).join("  ")}</span>
+      </div>
+      <div class="conn-row">
+        <span class="conn-k">拿不到什么</span>
+        <span class="conn-v">${esc(spec.known_limits)}</span>
+      </div>
+    </div>
+
+    ${(spec.setup_steps || []).length ? `
+      <details class="conn-setup">
+        <summary>怎么拿到只读权限（${spec.setup_steps.length} 步）</summary>
+        <ol class="conn-steps">${spec.setup_steps.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>
+        ${spec.docs_url ? `<p class="conn-docs"><a href="${esc(spec.docs_url)}" target="_blank" rel="noopener noreferrer">官方文档 \u2197</a></p>` : ""}
+      </details>` : ""}
+
+    ${spec.verified === false && spec.verify_note ? `
+      <p class="hint hint-warn"><b>待核对：</b>${esc(spec.verify_note)}</p>` : ""}
+
+    ${b ? `
+      <div class="conn-state">
+        <span class="conn-sync">${b.last_sync_at
+          ? "上次同步 " + esc(b.last_sync_at) + "，拉取 " + b.last_row_count + " 条"
+          : "尚未同步"}</span>
+      </div>
+      <div class="conn-actions">
+        <button class="btn btn-sm btn-primary" data-sync="${esc(spec.key)}">同步数据</button>
+        <button class="btn btn-sm btn-ghost" data-bind="${esc(spec.key)}">更新凭据</button>
+      </div>`
+    : `<div class="conn-actions">
+        <button class="btn btn-sm btn-primary" data-bind="${esc(spec.key)}">连接</button>
+       </div>`}
+  </div>`;
+}
 
 async function viewConnectors() {
   if (!state.slug) return viewNoClient();
@@ -827,70 +988,6 @@ async function viewConnectors() {
   ]);
   const boundMap = new Map(bound.items.map((b) => [b.key, b]));
 
-  const card = (spec) => {
-    const b = boundMap.get(spec.key);
-    const g = String(spec.max_evidence_grade || "C");
-    const title = spec.vendor || spec.name;
-    // 搜索用的关键词串：厂商、产品、类别都能命中
-    const hay = [spec.vendor, spec.product, spec.name, spec.category, spec.key]
-      .filter(Boolean).join(" ").toLowerCase();
-
-    return `
-    <div class="conn-card ${b ? "is-bound" : ""}" data-hay="${esc(hay)}">
-      <div class="conn-h">
-        <div class="conn-title">
-          <h3>${esc(title)}</h3>
-          <p>${esc(spec.product || spec.description || "")}</p>
-        </div>
-        <div class="conn-badges">
-          <span class="bdg bdg-${g.toLowerCase()}">${esc(g)} 级</span>
-          ${b ? `<span class="bdg bdg-ok">已连接</span>` : ""}
-        </div>
-      </div>
-
-      <p class="hint hint-info">${esc(GRADE_HINT[g] || "")}</p>
-
-      <div class="conn-rows">
-        <div class="conn-row">
-          <span class="conn-k">能算的指标</span>
-          <span class="conn-v">${(spec.metrics || []).map(esc).join("、")}</span>
-        </div>
-        <div class="conn-row">
-          <span class="conn-k">只读范围</span>
-          <span class="conn-v mono">${(spec.scopes || []).map(esc).join("  ")}</span>
-        </div>
-        <div class="conn-row">
-          <span class="conn-k">拿不到什么</span>
-          <span class="conn-v">${esc(spec.known_limits)}</span>
-        </div>
-      </div>
-
-      ${(spec.setup_steps || []).length ? `
-        <details class="conn-setup">
-          <summary>怎么拿到只读权限（${spec.setup_steps.length} 步）</summary>
-          <ol class="conn-steps">${spec.setup_steps.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>
-          ${spec.docs_url ? `<p class="conn-docs"><a href="${esc(spec.docs_url)}" target="_blank" rel="noopener noreferrer">官方文档 \u2197</a></p>` : ""}
-        </details>` : ""}
-
-      ${spec.verified === false && spec.verify_note ? `
-        <p class="hint hint-warn"><b>待核对：</b>${esc(spec.verify_note)}</p>` : ""}
-
-      ${b ? `
-        <div class="conn-state">
-          <span class="conn-sync">${b.last_sync_at
-            ? "上次同步 " + esc(b.last_sync_at) + "，拉取 " + b.last_row_count + " 条"
-            : "尚未同步"}</span>
-        </div>
-        <div class="conn-actions">
-          <button class="btn btn-sm btn-primary" data-sync="${esc(spec.key)}">同步数据</button>
-          <button class="btn btn-sm btn-ghost" data-bind="${esc(spec.key)}">更新凭据</button>
-        </div>`
-      : `<div class="conn-actions">
-          <button class="btn btn-sm btn-primary" data-bind="${esc(spec.key)}">连接</button>
-         </div>`}
-    </div>`;
-  };
-
   // 按类别分组；无 vendor 的抽象模板归到"其他"
   const groups = new Map();
   for (const spec of catalog.items) {
@@ -898,49 +995,74 @@ async function viewConnectors() {
     if (!groups.has(cat)) groups.set(cat, []);
     groups.get(cat).push(spec);
   }
-  const ordered = CAT_ORDER.filter((c) => groups.has(c))
-    .concat([...groups.keys()].filter((c) => !CAT_ORDER.includes(c)));
 
-  const section = (cat) => {
-    const items = groups.get(cat) || [];
-    const boundHere = items.filter((s) => boundMap.has(s.key)).length;
-    return `
-    <div class="sec conn-sec" data-cat="${esc(cat)}">
-      <div class="sec-h">
-        <h3>${esc(cat)}</h3>
-        <p>${esc(CAT_NOTE[cat] || "")}${boundHere ? `　·　已连接 ${boundHere}/${items.length}` : ""}</p>
-      </div>
-      <div class="conn-grid">${items.map(card).join("")}</div>
-    </div>`;
-  };
-
-  return `
-    ${pageHead("系统连接器", "L0 手工导入与 L1 只读 API 双轨并行，不是二选一。L1 拿到的客观计数还会用来校验客户的自述口径")}
-
+  const banner = `
     <div class="banner">
       <svg viewBox="0 0 16 16" class="banner-ico" aria-hidden="true"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm.9 10.5H7.1v-1.6h1.8zm0-2.9H7.1V4.2h1.8z"/></svg>
       <div>
         <p class="banner-t">全部连接器只读，无一例外</p>
         <p class="banner-b">诊断产出是报告，没有任何业务理由写客户系统。放弃写权限一次性消掉工具滥用、数据外泄、越权提升的绝大部分暴露面。写操作只落本地工作区。</p>
       </div>
-    </div>
+    </div>`;
+
+  // ---- 二级：已点进某个类别 ----
+  if (state.connCat && groups.has(state.connCat)) {
+    const cat = state.connCat;
+    const items = groups.get(cat);
+    const meta = CAT_META[cat] || { note: "" };
+    const boundHere = items.filter((s) => boundMap.has(s.key)).length;
+
+    return `
+      <nav class="crumb">
+        <button class="crumb-back" data-cat-back>‹ 系统连接器</button>
+        <span class="crumb-sep">/</span>
+        <span class="crumb-now">${esc(cat)}</span>
+      </nav>
+
+      ${pageHead(cat + " · 可选产品", meta.note)}
+
+      <div class="conn-toolbar">
+        <div class="conn-search">
+          <svg viewBox="0 0 16 16" class="conn-search-ico" aria-hidden="true"><path d="M10.5 9h-.8l-.3-.3a4.5 4.5 0 10-.7.7l.3.3v.8l3.5 3.5 1-1zM6.5 9a2.5 2.5 0 110-5 2.5 2.5 0 010 5z"/></svg>
+          <input id="connSearch" class="inp" placeholder="在本类中搜产品名" autocomplete="off" />
+        </div>
+        <p class="conn-count">共 <strong>${items.length}</strong> 个　·　已连接 ${boundHere}</p>
+      </div>
+
+      <p class="conn-empty" id="connEmpty" hidden>本类中没有匹配的产品。</p>
+
+      <div class="conn-grid conn-sec" data-cat="${esc(cat)}">
+        ${items.map((s) => connDetailCard(s, boundMap)).join("")}
+      </div>
+
+      <div class="sec" style="margin-top:16px">
+        <div class="card">
+          <p class="hint">连接后每次同步都会把拉到的数据落成一份材料，与手工上传的导出并列进入证据台账。
+          同一活动若 L1 与客户自述偏差超过 30%，台账会标注冲突并转人工判断——不取均值掩盖分歧。</p>
+        </div>
+      </div>`;
+  }
+
+  // ---- 一级：只给类别 + 品牌标识 ----
+  const totalBound = bound.items.length;
+  return `
+    ${pageHead("系统连接器", "先选客户在用的系统类别，点进去再挑具体产品。L0 手工导入与 L1 只读 API 双轨并行，不是二选一")}
+
+    ${banner}
 
     <div class="conn-toolbar">
-      <div class="conn-search">
-        <svg viewBox="0 0 16 16" class="conn-search-ico" aria-hidden="true"><path d="M10.5 9h-.8l-.3-.3a4.5 4.5 0 10-.7.7l.3.3v.8l3.5 3.5 1-1zM6.5 9a2.5 2.5 0 110-5 2.5 2.5 0 010 5z"/></svg>
-        <input id="connSearch" class="inp" placeholder="搜产品名，如 钉钉 / 金蝶 / Zendesk" autocomplete="off" />
-      </div>
-      <p class="conn-count">已连接 <strong>${bound.items.length}</strong> / ${catalog.items.length} 个　·　等级是诚实声明的能力边界，不是营销话术</p>
+      <p class="conn-count">
+        共 <strong>${catalog.items.length}</strong> 个连接器，分 ${groups.size} 类　·　已连接 <strong>${totalBound}</strong> 个
+      </p>
+      <p class="conn-count">等级是诚实声明的能力边界，不是营销话术</p>
     </div>
 
-    <p class="conn-empty" id="connEmpty" hidden>没有匹配的产品。客户系统不在清单里时，用「其他」分组的通用模板，或先走 L0 手工导出。</p>
+    <div class="cat-grid">${connCategoryGrid(groups, boundMap)}</div>
 
-    ${ordered.map(section).join("")}
-
-    <div class="sec">
+    <div class="sec" style="margin-top:20px">
       <div class="card">
-        <p class="hint">连接后每次同步都会把拉到的数据落成一份材料，与手工上传的导出并列进入证据台账。
-        同一活动若 L1 与客户自述偏差超过 30%，台账会标注冲突并转人工判断——不取均值掩盖分歧。</p>
+        <p class="hint">客户系统不在清单里？用「其他」分组的通用类别模板，或先走 L0 手工导出——
+        两条轨道并行，不影响出报告。</p>
       </div>
     </div>`;
 }
@@ -1127,6 +1249,7 @@ function highlight(el) {
 
 async function switchClient(slug) {
   state.slug = slug;
+  state.connCat = null;  // 换客户回到一级菜单，避免停在上个客户的类别里
   clearCache();
   const c = state.clients.find((x) => x.slug === slug);
   state.client = c || null;
@@ -1226,6 +1349,24 @@ function wire() {
 }
 
 function wireConnectors() {
+  // 一级 → 二级：点类别卡片进明细
+  stage.querySelectorAll("[data-cat]").forEach((el) => {
+    if (!el.classList.contains("cat-card")) return;
+    el.addEventListener("click", async () => {
+      state.connCat = el.dataset.cat;
+      await go("connectors");
+    });
+  });
+
+  // 二级 → 一级：面包屑返回
+  const back = stage.querySelector("[data-cat-back]");
+  if (back) {
+    back.addEventListener("click", async () => {
+      state.connCat = null;
+      await go("connectors");
+    });
+  }
+
   // 搜索：按厂商/产品/类别过滤。纯前端过滤——26 个连接器不值得往后端加接口，
   // 且即时响应比一次往返更好用。
   const search = document.getElementById("connSearch");
