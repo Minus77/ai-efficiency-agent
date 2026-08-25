@@ -184,3 +184,31 @@ def test_interactive_controls_have_visible_focus():
     """键盘用户看不见焦点在哪，等于不能用键盘。"""
     for cls in (".term:focus-visible", ".bdg-btn:focus-visible", ".numref:focus-visible"):
         assert cls in STYLES, f"{cls} 缺少可见焦点样式"
+
+
+def test_narrow_screen_offset_targets_the_element_that_owns_it():
+    """窄屏下缩进的必须是真正持有左偏移的那个元素。
+
+    这是本会话真实踩到的回归：为了让首访提示条与内容同列，左偏移从 .main
+    移到了 .mainwrap，但 ≤1024px 的媒体查询仍在改 .main。结果窄屏下偏移
+    一直停在侧栏全宽（216px），整页被推出视口——14 个视图里 6 个横向溢出，
+    而所有单元测试与前四套浏览器用例都是绿的（它们没在 390px 下量过页宽）。
+
+    根因是"偏移写在 A 上、媒体查询改 B"这种错位，看代码很难发现，
+    所以在这里断言两者始终指向同一个选择器。
+    """
+    # 基准态：谁持有 margin-left
+    base = re.search(r"^\.mainwrap\s*\{([^}]*)\}", STYLES, re.M)
+    assert base, "找不到 .mainwrap 规则"
+    assert "margin-left" in base.group(1), (
+        "左偏移应由 .mainwrap 持有；若改到别处，请同步更新窄屏媒体查询与本测试"
+    )
+
+    # 窄屏态：必须覆盖同一个选择器
+    narrow = re.search(r"@media \(max-width: 1024px\)\s*\{(.*?)\n\}", STYLES, re.S)
+    assert narrow, "缺少 ≤1024px 的响应式规则"
+    body = narrow.group(1)
+    assert re.search(r"\.mainwrap\s*\{[^}]*margin-left", body), (
+        "≤1024px 下必须收窄 .mainwrap 的 margin-left。"
+        "改 .main 是无效的——左偏移不在它身上，页面会被整体推出视口"
+    )
