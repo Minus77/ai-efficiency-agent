@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 workspace/
 .env
+
+# 连接器明文凭据：workspace/ 已整体忽略，这里再显式挡一层（纵深防御）
+.connector-secrets.json
+**/.connector-secrets.json
