@@ -355,6 +355,60 @@ def difficulty_scale() -> dict[str, Any]:
     }
 
 
+def tier_scale() -> list[dict[str, Any]]:
+    """ROI 三档口径。系数从 roi.py 取，不在这里另写一份数字。
+
+    「保守 / 中性 / 乐观」如果不说明差在哪，读者会以为是三个人拍的三个数。
+    实际差别只有一项：假设 AI 之外的配套改进带来多少额外效率增益。
+    """
+    from .roi import _NEUTRAL_UPLIFT, _OPTIMISTIC_UPLIFT
+
+    return [
+        {
+            "tier": "保守",
+            "uplift": 1.0,
+            "criteria": "只计已验证的直接省时，不假设任何额外增益",
+            "why": "报告默认用这一档的下限——宁可少说，不要让客户落地后觉得被骗",
+        },
+        {
+            "tier": "中性",
+            "uplift": _NEUTRAL_UPLIFT,
+            "criteria": f"叠加 {round((_NEUTRAL_UPLIFT - 1) * 100)}% 的配套效率增益（流程顺带理顺、返工减少）",
+            "why": "改造很少只带来单点省时，但这部分增益无法事前核实，因此单列一档",
+        },
+        {
+            "tier": "乐观",
+            "uplift": _OPTIMISTIC_UPLIFT,
+            "criteria": f"叠加 {round((_OPTIMISTIC_UPLIFT - 1) * 100)}% 增益；仅 A 级证据才给这一档",
+            "why": "证据不硬时给乐观档等于鼓励客户按最好情况做预算，所以 B/C 级不出这一档",
+        },
+    ]
+
+
+def severity_scale() -> list[dict[str, Any]]:
+    """反评审严重度。判定依据是证据类型的固有局限，不是模型的主观感受。"""
+    return [
+        {
+            "level": "高",
+            "criteria": "结论所依赖的证据类型本身不足以支撑量化（B 级自述类、C 级无痕迹）",
+            "action": "落地前必须先补数据或先解决留痕，不宜据此安排投入",
+            "color": "danger",
+        },
+        {
+            "level": "中",
+            "criteria": "证据可用但推算方式有系统性偏差（如时间戳间隔含思考与等待，工时会偏高）",
+            "action": "可以推进，但要用一小批真实数据实测后回填修正",
+            "color": "warning",
+        },
+        {
+            "level": "低",
+            "criteria": "仅影响精度，不动摇结论方向",
+            "action": "记录备查即可，不阻塞落地",
+            "color": "neutral",
+        },
+    ]
+
+
 def delivery_scale() -> list[dict[str, Any]]:
     """交付形态：能拿到什么粒度的数据，就出什么形态的交付物。"""
     return [

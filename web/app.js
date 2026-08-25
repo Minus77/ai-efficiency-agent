@@ -98,6 +98,8 @@ async function loadGlossary() {
       workForm: d.work_form_scale,
       difficulty: d.difficulty_scale,
       delivery: d.delivery_scale,
+      tier: d.tier_scale,
+      severity: d.severity_scale,
     };
     glossary.loaded = true;
   } catch (e) {
@@ -291,6 +293,42 @@ function openScalePop(anchor, kind, key) {
         <thead><tr><th>形态 / 前提</th><th>包含内容</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
+      <button class="pop-more" data-goto-glossary>全部术语与分级标准 \u203a</button>`);
+    return;
+  }
+
+  if (kind === "tier") {
+    const rows = s.tier.map((x) => `
+      <tr class="${x.tier === key ? "is-now" : ""}">
+        <td><b>${esc(x.tier)}</b></td>
+        <td>${esc(x.criteria)}</td>
+      </tr>`).join("");
+    openPop(anchor, "ROI 三档口径差在哪", `
+      <p class="pop-plain">三档不是三个人拍的三个数。差别只有一项：假设 AI 之外的配套改进带来多少额外增益。</p>
+      <table class="scale-tbl">
+        <thead><tr><th>档位</th><th>判定口径</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <p class="pop-eg"><b>报告采用哪一档</b>默认用保守档的下限——宁可少说，不要让客户落地后觉得被骗。</p>
+      <button class="pop-more" data-goto-glossary>全部术语与分级标准 \u203a</button>`);
+    return;
+  }
+
+  if (kind === "severity") {
+    const now = s.severity.find((x) => x.level === key);
+    const rows = s.severity.map((x) => `
+      <tr class="${x.level === key ? "is-now" : ""}">
+        <td><b>${esc(x.level)}</b></td>
+        <td>${esc(x.criteria)}</td>
+        <td>${esc(x.action)}</td>
+      </tr>`).join("");
+    openPop(anchor, "反评审严重度的判定标准", `
+      <p class="pop-plain">严重度按证据类型的固有局限判定，不是模型的主观感受。</p>
+      <table class="scale-tbl">
+        <thead><tr><th>档</th><th>什么情况算这一档</th><th>该怎么办</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${now ? `<p class="pop-eg"><b>「${esc(now.level)}」的应对</b>${esc(now.action)}</p>` : ""}
       <button class="pop-more" data-goto-glossary>全部术语与分级标准 \u203a</button>`);
   }
 }
@@ -573,7 +611,9 @@ async function viewRoi() {
             <th style="text-align:right">月度工时</th>
             <th style="text-align:right">${term("折现")}</th>
             <th style="text-align:right">折现后</th>
-            <th style="text-align:right">收益${term("区间")}（${term("保守档", "保守→中性")}）</th>
+            <th style="text-align:right">收益${term("区间")}（<button class="numref" data-scale="tier"
+              data-key="保守" aria-expanded="false"
+              aria-label="查看 ROI 三档口径的差别">保守→中性 <i class="bdg-q" aria-hidden="true">?</i></button>）</th>
             <th style="text-align:right">${term("点估")}（仅 A 级）</th>
             <th style="text-align:right">${term("回本周期", "回本")}（保守）</th>
           </tr></thead>
@@ -719,7 +759,9 @@ async function viewReview() {
         <div class="card">
           <div class="item-h">
             <span class="item-id">${esc(i.card_id)}</span>
-            <span class="bdg ${SEV[i.severity] || "bdg-n"}">严重度 ${esc(i.severity)}</span>
+            <button class="bdg ${SEV[i.severity] || "bdg-n"} bdg-btn" data-scale="severity"
+              data-key="${esc(i.severity)}" aria-expanded="false"
+              aria-label="查看严重度 ${esc(i.severity)} 的判定标准与应对动作">严重度 ${esc(i.severity)} <i class="bdg-q" aria-hidden="true">?</i></button>
           </div>
           <p style="margin:0 0 10px;font-size:13.5px;line-height:1.7">${esc(i.rebuttal)}</p>
           <p class="hint">处理：${esc(i.resolution)}</p>
@@ -834,6 +876,21 @@ async function viewGlossary() {
       <td class="dim">${esc(x.excludes) || "\u2014"}</td>
     </tr>`).join("");
 
+  const tierRows = s.tier.map((x) => `
+    <tr>
+      <td><b>${esc(x.tier)}</b></td>
+      <td class="r">×${x.uplift}</td>
+      <td>${esc(x.criteria)}</td>
+      <td class="dim">${esc(x.why)}</td>
+    </tr>`).join("");
+
+  const sevRows = s.severity.map((x) => `
+    <tr>
+      <td><b>${esc(x.level)}</b></td>
+      <td>${esc(x.criteria)}</td>
+      <td>${esc(x.action)}</td>
+    </tr>`).join("");
+
   return `
     ${pageHead("术语与标准", "报告里出现的每个专有名词都能在这里查到判定标准。界面上带虚线下划线的词可以直接点开看解释")}
 
@@ -848,8 +905,8 @@ async function viewGlossary() {
 
     <div class="sec">
       <div class="sec-h">
-        <h3>四张分级标准表</h3>
-        <p>报告里所有等级、分数、形态的判定口径都在这里，先看这四张表再看报告会顺很多</p>
+        <h3>六张分级标准表</h3>
+        <p>报告里所有等级、分数、档位的判定口径都在这里，先看这六张表再看报告会顺很多</p>
       </div>
 
       <div class="card">
@@ -896,6 +953,30 @@ async function viewGlossary() {
         <div class="tbl-scroll"><table class="scale-tbl scale-wide">
           <thead><tr><th>形态</th><th>前提</th><th>包含</th><th>不包含</th></tr></thead>
           <tbody>${delRows}</tbody>
+        </table></div>
+      </div>
+
+      <div class="card">
+        <div class="card-h">
+          <h3>五、ROI 三档口径</h3>
+          <p>三档不是三个人拍的三个数，差别只有一项：假设配套改进带来多少额外增益</p>
+        </div>
+        <div class="tbl-scroll"><table class="scale-tbl scale-wide">
+          <thead><tr><th>档位</th><th style="text-align:right">系数</th><th>判定口径</th><th>为什么这么定</th></tr></thead>
+          <tbody>${tierRows}</tbody>
+        </table></div>
+        <p class="hint hint-warn">报告默认用保守档的下限。乐观档只在 A 级证据下出现——
+        证据不硬时给乐观档，等于鼓励客户按最好情况做预算。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-h">
+          <h3>六、反评审严重度</h3>
+          <p>按证据类型的固有局限判定，不是模型的主观感受</p>
+        </div>
+        <div class="tbl-scroll"><table class="scale-tbl scale-wide">
+          <thead><tr><th>档</th><th>什么情况算这一档</th><th>该怎么办</th></tr></thead>
+          <tbody>${sevRows}</tbody>
         </table></div>
       </div>
     </div>

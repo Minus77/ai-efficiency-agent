@@ -36,6 +36,8 @@ from .glossary import (
     explain,
     grade_scale,
     grouped_terms,
+    severity_scale,
+    tier_scale,
     work_form_scale,
 )
 from .intake import EVIDENCE_ROLES, list_materials, save_material
@@ -529,6 +531,8 @@ def create_app(*, root: Path | str | None = None, use_llm: bool = False) -> Fast
             "work_form_scale": work_form_scale(),
             "difficulty_scale": difficulty_scale(),
             "delivery_scale": delivery_scale(),
+            "tier_scale": tier_scale(),
+            "severity_scale": severity_scale(),
             "note": "报告里出现的每个专有名词都能在这里查到，包含判定标准与为什么值得看。",
         }
 

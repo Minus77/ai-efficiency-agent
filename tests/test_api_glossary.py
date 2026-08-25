@@ -73,3 +73,18 @@ def test_glossary_exposes_grouped_terms(app):
     assert len(listed) == len(body["terms"]), "分组里的词数与术语总数不一致，有词漏出参考页"
     for g in body["groups"]:
         assert g["group"] and g["intro"] and g["terms"]
+
+
+def test_glossary_exposes_tier_and_severity_scales(app):
+    """ROI 三档与反评审严重度也是分级，判定标准同样要随接口下发。"""
+    body = app.get("/api/glossary").json()
+
+    tiers = body["tier_scale"]
+    assert [t["tier"] for t in tiers] == ["保守", "中性", "乐观"]
+    for t in tiers:
+        assert t["criteria"] and t["why"]
+
+    sev = body["severity_scale"]
+    assert [s["level"] for s in sev] == ["高", "中", "低"]
+    for s in sev:
+        assert s["criteria"] and s["action"], "严重度必须同时说明判定标准与应对动作"

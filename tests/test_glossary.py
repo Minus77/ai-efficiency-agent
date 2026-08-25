@@ -161,3 +161,47 @@ def test_grouped_terms_shape_for_frontend():
         assert g["group"] and g["intro"] and g["terms"]
         for t in g["terms"]:
             assert t["key"] and t["label"] and t["plain"] and t["why"]
+
+
+# ---------------------------- ROI 三档与严重度 ----------------------------
+def test_tier_scale_explains_what_differs_between_tiers():
+    """「保守/中性/乐观」不说明差在哪，读者会以为是三个人拍的三个数。"""
+    from aiea.glossary import tier_scale
+
+    scale = tier_scale()
+    assert [s["tier"] for s in scale] == ["保守", "中性", "乐观"]
+    for s in scale:
+        assert s["criteria"], f"{s['tier']} 档未写明判定口径"
+        assert s["why"], f"{s['tier']} 档未写明为什么这么定"
+    assert scale[0]["uplift"] == 1.0, "保守档不得叠加任何额外增益"
+    # 乐观档必须写明证据门槛，否则客户会拿它做预算
+    assert "A" in scale[2]["criteria"]
+
+
+def test_tier_uplifts_match_roi_module():
+    """系数只能有一处真值。术语表另写一份，改了 roi.py 界面就在骗人。"""
+    from aiea.glossary import tier_scale
+    from aiea.roi import _NEUTRAL_UPLIFT, _OPTIMISTIC_UPLIFT
+
+    scale = {s["tier"]: s for s in tier_scale()}
+    assert scale["中性"]["uplift"] == _NEUTRAL_UPLIFT
+    assert scale["乐观"]["uplift"] == _OPTIMISTIC_UPLIFT
+
+
+def test_severity_scale_states_criteria_and_action():
+    """「严重度 高」如果不说明该怎么办，等于只是吓人。"""
+    from aiea.glossary import severity_scale
+
+    scale = severity_scale()
+    assert [s["level"] for s in scale] == ["高", "中", "低"]
+    for s in scale:
+        assert s["criteria"], f"严重度 {s['level']} 未写明判定标准"
+        assert s["action"], f"严重度 {s['level']} 未写明应对动作"
+
+
+def test_severity_levels_match_agents_module():
+    """界面上的档位必须与反评审实际会产出的档位一致。"""
+    from aiea.agents import _SEVERITIES
+    from aiea.glossary import severity_scale
+
+    assert {s["level"] for s in severity_scale()} == set(_SEVERITIES)
