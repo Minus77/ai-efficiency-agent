@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -16,6 +17,19 @@ from typing import Any, Callable, Protocol
 
 from ..guardrails import scan_untrusted_text, tenant_filter
 from ..models import EvidenceGrade, ResultCode, ToolResult
+
+def stable_seed(*parts: str, salt: int = 0) -> int:
+    """跨进程稳定的随机种子。
+
+    **不要用内置 hash()**：Python 默认对 str 哈希加盐（PYTHONHASHSEED 随机），
+    同一个客户在服务重启后会拿到完全不同的数据。对一个承诺"每个数字都能
+    回指证据"的诊断工具，那意味着结论会无故漂移。
+
+    blake2b 摘要跨进程、跨平台、跨版本都一致。
+    """
+    digest = hashlib.blake2b("::".join(parts).encode("utf-8"), digest_size=8).digest()
+    return int.from_bytes(digest, "big") % 1_000_003 + salt
+
 
 # 与 guardrails._WRITE_OPS 保持一致；在连接器层再挡一次（纵深防御）
 _WRITE_VERBS = frozenset({"write", "update", "insert", "delete", "patch", "post", "put", "upsert"})

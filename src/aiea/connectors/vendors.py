@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from ..models import EvidenceGrade
-from .base import ConnectorSpec, register
+from .base import ConnectorSpec, register, stable_seed
 
 SEED = 20260826
 _BASE = datetime(2026, 7, 20, 8, 30)
@@ -45,7 +45,8 @@ def _workday(i: int) -> datetime:
 
 
 def _rng(tenant: str, salt: int) -> random.Random:
-    return random.Random(SEED + salt + (hash(tenant) % 1000))
+    # 用 stable_seed 而非内置 hash：后者跨进程不稳定，会让同一客户重启后数据变样
+    return random.Random(stable_seed(tenant, salt=salt) + SEED)
 
 
 # ===========================================================================

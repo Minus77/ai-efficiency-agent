@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from ..models import EvidenceGrade
-from .base import ConnectorSpec, register
+from .base import ConnectorSpec, register, stable_seed
 
 SEED = 20260825
 _BASE_DAY = datetime(2026, 7, 20, 8, 30)
@@ -54,7 +54,7 @@ TICKETING_SPEC = ConnectorSpec(
 
 def _ticketing_source():
     def source(*, tenant: str, since: str | None, limit: int) -> list[dict[str, Any]]:
-        rng = random.Random(SEED + hash(tenant) % 1000)
+        rng = random.Random(stable_seed(tenant, salt=0) + SEED)
         rows: list[dict[str, Any]] = []
         tid = 50000
         cats = ["送货时间查询", "开票信息补录", "退换货登记", "安装售后", "缺货补货"]
@@ -108,7 +108,7 @@ CRM_SPEC = ConnectorSpec(
 
 def _crm_source():
     def source(*, tenant: str, since: str | None, limit: int) -> list[dict[str, Any]]:
-        rng = random.Random(SEED + 7 + hash(tenant) % 1000)
+        rng = random.Random(stable_seed(tenant, salt=7) + SEED)
         rows: list[dict[str, Any]] = []
         oid = 8000
         for d in range(22):
@@ -159,7 +159,7 @@ IM_SPEC = ConnectorSpec(
 
 def _im_source():
     def source(*, tenant: str, since: str | None, limit: int) -> list[dict[str, Any]]:
-        rng = random.Random(SEED + 13 + hash(tenant) % 1000)
+        rng = random.Random(stable_seed(tenant, salt=13) + SEED)
         rows = []
         for month in ("2026-06", "2026-07", "2026-08"):
             rows.append(
@@ -196,7 +196,7 @@ ERP_SPEC = ConnectorSpec(
 
 def _erp_source():
     def source(*, tenant: str, since: str | None, limit: int) -> list[dict[str, Any]]:
-        rng = random.Random(SEED + 21 + hash(tenant) % 1000)
+        rng = random.Random(stable_seed(tenant, salt=21) + SEED)
         rows = []
         vid = 300000
         for _ in range(min(limit, 480)):
@@ -236,7 +236,7 @@ ECOM_SPEC = ConnectorSpec(
 
 def _ecom_source():
     def source(*, tenant: str, since: str | None, limit: int) -> list[dict[str, Any]]:
-        rng = random.Random(SEED + 33 + hash(tenant) % 1000)
+        rng = random.Random(stable_seed(tenant, salt=33) + SEED)
         rows = []
         oid = 900000
         for d in range(30):
