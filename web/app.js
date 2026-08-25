@@ -1693,19 +1693,58 @@ const REPORT_VIEWS = new Set([
 
 let currentView = "overview";
 
+/* 换页的加载态。
+ *
+ * 视图数据大多命中缓存、瞬间就好，所以立刻显示骨架屏反而会闪一下——
+ * 那种闪动比没有反馈更让人不安。延迟 250ms 再显示：快的时候用户根本看不到，
+ * 慢的时候才出现，这是 skeleton/spinner 的常规做法。
+ *
+ * aria-busy 让读屏用户也知道"正在取数"，而不是面对一片沉默。
+ */
+const PENDING_DELAY_MS = 250;
+let pendingTimer = 0;
+
+function startPending() {
+  clearTimeout(pendingTimer);
+  pendingTimer = setTimeout(() => {
+    stage.setAttribute("aria-busy", "true");
+    stage.innerHTML = `
+      <div class="skeleton" role="status" aria-label="正在加载">
+        <div class="sk-line sk-w40"></div>
+        <div class="sk-cards"><div class="sk-card"></div><div class="sk-card"></div><div class="sk-card"></div><div class="sk-card"></div></div>
+        <div class="sk-line sk-w60"></div>
+        <div class="sk-block"></div>
+      </div>`;
+  }, PENDING_DELAY_MS);
+}
+
+function endPending() {
+  clearTimeout(pendingTimer);
+  pendingTimer = 0;
+  stage.removeAttribute("aria-busy");
+}
+
 async function render(name) {
   currentView = name;
+  startPending();
   try {
     if (REPORT_VIEWS.has(name) && !state.slug) {
+      endPending();
       stage.innerHTML = `<div class="view">` + viewNoClient() + `</div>`;
       wire();
       return;
     }
     const html = await VIEWS[name]();
+    // 期间用户又点了别的页：那次调用会自己收尾，这次的结果直接丢掉，
+    // 否则慢请求后到会把用户已经离开的页面又盖回来。
+    if (currentView !== name) return;
+    endPending();
     stage.innerHTML = `<div class="view">` + html + `</div>`;
     window.scrollTo({ top: 0, behavior: "instant" });
     wire();
   } catch (err) {
+    if (currentView !== name) return;
+    endPending();
     // 409 = 还没跑诊断：给可执行下一步，而不是一句"加载失败"
     if (err.status === 409) {
       stage.innerHTML = `<div class="view">` + viewNeedsDiagnosis(err.message) + `</div>`;

@@ -365,3 +365,45 @@ def test_danger_button_keeps_white_text_readable():
     )
     r = _contrast(_token("n0"), _token("danger-fg"))
     assert r >= 4.5, f"危险按钮白字只有 {r:.2f}:1"
+
+
+# ---------------------------------------------------------------------------
+# 换页加载态：既要有反馈，又不能因为反馈太急而闪
+# ---------------------------------------------------------------------------
+def test_pending_state_is_delayed_not_immediate():
+    """立刻显示骨架屏会在缓存命中时闪一下，那种闪动比没有反馈更让人不安。"""
+    assert "PENDING_DELAY_MS" in APP_JS, "缺少延迟显示的加载态"
+    m = re.search(r"const PENDING_DELAY_MS = (\d+)", APP_JS)
+    assert m, "找不到 PENDING_DELAY_MS 取值"
+    delay = int(m.group(1))
+    assert 150 <= delay <= 500, (
+        f"延迟 {delay}ms 不合适：太短会闪，太长会让人以为点击没生效"
+    )
+    assert re.search(r"function startPending\(\)", APP_JS)
+    assert re.search(r"function endPending\(\)", APP_JS)
+
+
+def test_pending_state_is_announced_to_screen_readers():
+    """读屏用户面对一片沉默无法判断是在加载还是卡住了。"""
+    m = re.search(r"function startPending\(\).*?\n\}", APP_JS, re.S)
+    assert m, "找不到 startPending"
+    body = m.group(0)
+    assert 'aria-busy' in body, "加载中必须标记 aria-busy"
+    assert 'role="status"' in body, "骨架屏要对读屏可见"
+
+    end = re.search(r"function endPending\(\).*?\n\}", APP_JS, re.S)
+    assert end and "removeAttribute" in end.group(0), (
+        "加载结束必须撤下 aria-busy，否则读屏会一直播报"
+    )
+
+
+def test_stale_response_does_not_overwrite_current_view():
+    """慢请求后到会把用户已经离开的页面盖回来——这是异步渲染最典型的竞态。"""
+    m = re.search(r"async function render\(name\)\s*\{.*?\n\}", APP_JS, re.S)
+    assert m, "找不到 render()"
+    body = m.group(0)
+    guards = len(re.findall(r"currentView !== name", body))
+    assert guards >= 2, (
+        f"render() 只有 {guards} 处新旧视图校验；成功与失败两条路径都要有，"
+        "否则慢请求或慢失败都会覆盖当前页面"
+    )
