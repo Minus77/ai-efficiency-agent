@@ -103,3 +103,29 @@ def test_save_material_rejects_disallowed_type(tmp_path):
     rec = save_material(root=tmp_path, slug=c.slug, filename="x.exe", content=b"MZ", evidence_role="R1")
     assert rec["accepted"] is False
     assert not list((tmp_path / c.slug / "materials").glob("*.exe"))
+
+
+# ---------------------------- 分类计数必须精确 ----------------------------
+UNEVEN = "\n".join(
+    ["id,created_at,category"]
+    + [f"A{i},2026-03-12T09:{i % 60:02d}:00,送货时间" for i in range(30)]
+    + [f"B{i},2026-03-12T14:{i % 60:02d}:00,开票问题" for i in range(6)]
+)
+
+
+def test_categorical_counts_are_exact_over_all_rows():
+    """按取值分摊记录数是错的——必须精确计数，否则频次会系统性失真。"""
+    p = parse_bytes(UNEVEN.encode("utf-8"), filename="tickets.csv")
+    counts = p.categorical_counts["category"]
+    assert counts["送货时间"] == 30
+    assert counts["开票问题"] == 6
+
+
+def test_timestamps_are_grouped_by_category_value():
+    p = parse_bytes(UNEVEN.encode("utf-8"), filename="tickets.csv")
+    grouped = p.timestamps_by["category"]
+    assert len(grouped["送货时间"]) == 30
+    assert len(grouped["开票问题"]) == 6
+    # 分组后的时间戳必须真的属于该取值（上午 vs 下午）
+    assert all("T09:" in ts for ts in grouped["送货时间"])
+    assert all("T14:" in ts for ts in grouped["开票问题"])

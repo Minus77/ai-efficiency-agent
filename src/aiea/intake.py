@@ -72,6 +72,10 @@ class ParsedMaterial:
     timestamps: dict[str, list[str]] = field(default_factory=dict)
     numeric_columns: list[str] = field(default_factory=list)
     categorical_samples: dict[str, list[str]] = field(default_factory=dict)
+    # 精确计数：按取值分摊记录数会让频次系统性失真，因此必须全表计数
+    categorical_counts: dict[str, dict[str, int]] = field(default_factory=dict)
+    # 每个分类取值对应的时间戳，用于按取值分别判定作业形态
+    timestamps_by: dict[str, dict[str, list[str]]] = field(default_factory=dict)
     excerpt: str = ""
     summary_only: bool = False
     injection_suspected: bool = False
@@ -161,6 +165,27 @@ def parse_bytes(content: bytes, *, filename: str) -> ParsedMaterial:
         if len(uniq) <= 24:
             cat_samples[col] = uniq[:12]
 
+    # 分类列的精确计数 + 按取值分组时间戳（只对基数合理的列做，避免 O(列 x 行) 爆炸）
+    cat_counts: dict[str, dict[str, int]] = {}
+    ts_by: dict[str, dict[str, list[str]]] = {}
+    primary_ts = ts_cols[0] if ts_cols else ""
+    for col in cat_samples:
+        counter: dict[str, int] = {}
+        grouped: dict[str, list[str]] = {}
+        for r in rows:
+            val = (r.get(col) or "").strip()
+            if not val:
+                continue
+            counter[val] = counter.get(val, 0) + 1
+            if primary_ts:
+                tv = (r.get(primary_ts) or "").strip()
+                if tv:
+                    grouped.setdefault(val, []).append(tv)
+        if counter:
+            cat_counts[col] = counter
+            if grouped:
+                ts_by[col] = grouped
+
     # 汇总判定：表头含汇总词且行数很少 → 拿不到明细
     header_blob = " ".join(columns)
     summary_only = bool(_SUMMARY_HINT.search(header_blob)) and len(rows) <= 24 and not ts_cols
@@ -174,6 +199,8 @@ def parse_bytes(content: bytes, *, filename: str) -> ParsedMaterial:
         timestamps=ts_values,
         numeric_columns=numeric_cols,
         categorical_samples=cat_samples,
+        categorical_counts=cat_counts,
+        timestamps_by=ts_by,
         excerpt=text[:600],
         summary_only=summary_only,
         injection_suspected=scan.injection_suspected,
