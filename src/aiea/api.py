@@ -127,6 +127,7 @@ def create_app(*, root: Path | str = "workspace", use_llm: bool = False) -> Fast
         r = report()
         return {
             "items": r["matrix"],
+            "thresholds": r["matrix_thresholds"],
             "axes": {
                 "benefit": "月度可省工时 × 岗位成本系数（来自 ROI 估算）",
                 "difficulty": "七维加权：数据可得性、系统集成度、流程标准化、人员接受度、AI 能力匹配、合规风险、维护成本",

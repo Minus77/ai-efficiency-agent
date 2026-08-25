@@ -811,6 +811,12 @@ def run_seed_diagnosis(
         "roi": roi_map,
         "aggregate": aggregate,
         "matrix": matrix,
+        "matrix_thresholds": {
+            "benefit": round(benefit_threshold, 2),
+            "difficulty": difficulty_threshold,
+            "benefit_basis": "本客户已量化场景收益的中位数（绝对阈值会随客户规模失准）",
+            "difficulty_basis": "七维加权难度 1–5 的中点",
+        },
         "roadmap": diag.roadmap(
             [
                 {

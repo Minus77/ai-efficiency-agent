@@ -37,6 +37,23 @@ def test_matrix_endpoint_keeps_do_not_quadrant(client):
     assert body["axes"]["benefit"] and body["axes"]["difficulty"]
 
 
+def test_matrix_exposes_axis_thresholds_for_plotting(client):
+    """前端要画真散点象限图，必须拿到与服务端一致的分界线，不能自己猜。"""
+    body = client.get("/api/matrix").json()
+    t = body["thresholds"]
+    assert t["difficulty"] == 3.0
+    assert t["benefit"] > 0
+    # 阈值必须能把 items 正确分到象限，否则前端画的点会和文字结论矛盾
+    for i in body["items"]:
+        high_benefit = i["benefit"] >= t["benefit"]
+        high_difficulty = i["difficulty"] >= t["difficulty"]
+        expected = {
+            (True, False): "先做", (True, True): "规划",
+            (False, False): "顺手做", (False, True): "不做",
+        }[(high_benefit, high_difficulty)]
+        assert i["quadrant"] == expected, i
+
+
 def test_roi_endpoint_never_exposes_amount_for_grade_c(client):
     body = client.get("/api/roi").json()
     for item in body["items"]:

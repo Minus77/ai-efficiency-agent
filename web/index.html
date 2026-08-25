@@ -4,49 +4,92 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>AI 提效场景诊断 · 明辉家居建材</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-<div class="grain" aria-hidden="true"></div>
+<header class="topbar">
+  <div class="topbar-l">
+    <div class="logo" aria-hidden="true">
+      <span class="logo-mark"></span>
+    </div>
+    <div class="topbar-title">
+      <h1>AI 提效场景诊断</h1>
+      <p id="tbClient">明辉家居建材</p>
+    </div>
+  </div>
+  <div class="topbar-r">
+    <span class="tag tag-primary" id="tbDelivery">完整诊断</span>
+    <span class="tag" id="tbAsOf">AS_OF —</span>
+    <span class="tag tag-ghost">决策参考，非投资承诺</span>
+  </div>
+</header>
 
-<aside class="rail">
-  <header class="rail-head">
-    <p class="eyebrow">诊断报告</p>
-    <h1 class="rail-title" id="railClient">明辉家居建材</h1>
-    <p class="rail-meta">
-      <span class="chip chip-solid" id="railDelivery">完整诊断</span>
-      <span class="chip" id="railHeadcount">86 人</span>
-    </p>
-  </header>
+<div class="shell">
+  <aside class="side">
+    <nav class="nav" id="nav" aria-label="报告章节">
+      <p class="nav-group">诊断结论</p>
+      <button class="nav-item is-active" data-view="overview">
+        <svg viewBox="0 0 16 16" class="ico" aria-hidden="true"><path d="M2 9h4v5H2zM6.5 4h3v10h-3zM11 6.5h3V14h-3z"/></svg>
+        <span>概览与假设</span>
+      </button>
+      <button class="nav-item" data-view="scenarios">
+        <svg viewBox="0 0 16 16" class="ico" aria-hidden="true"><path d="M2 3h12v2H2zM2 7h12v2H2zM2 11h8v2H2z"/></svg>
+        <span>场景清单</span>
+      </button>
+      <button class="nav-item" data-view="matrix">
+        <svg viewBox="0 0 16 16" class="ico" aria-hidden="true"><path d="M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2zM9 9h5v5H9z"/></svg>
+        <span>优先级矩阵</span>
+      </button>
+      <button class="nav-item" data-view="roi">
+        <svg viewBox="0 0 16 16" class="ico" aria-hidden="true"><path d="M8 1l2 4 4 .5-3 3 .8 4L8 10.6 4.2 12.5 5 8.5 2 5.5 6 5z"/></svg>
+        <span>分级 ROI</span>
+      </button>
+      <button class="nav-item" data-view="roadmap">
+        <svg viewBox="0 0 16 16" class="ico" aria-hidden="true"><path d="M3 2h10v3H3zM3 6.5h10v3H3zM3 11h6v3H3z"/></svg>
+        <span>90 天路线图</span>
+      </button>
 
-  <nav class="nav" id="nav" aria-label="报告章节">
-    <button class="nav-item is-active" data-view="overview"><span class="nav-idx">01</span><span class="nav-label">概览与假设</span></button>
-    <button class="nav-item" data-view="scenarios"><span class="nav-idx">02</span><span class="nav-label">场景清单</span></button>
-    <button class="nav-item" data-view="matrix"><span class="nav-idx">03</span><span class="nav-label">优先级矩阵</span></button>
-    <button class="nav-item" data-view="roi"><span class="nav-idx">04</span><span class="nav-label">分级 ROI</span></button>
-    <button class="nav-item" data-view="roadmap"><span class="nav-idx">05</span><span class="nav-label">90 天路线图</span></button>
-    <button class="nav-item" data-view="evidence"><span class="nav-idx">06</span><span class="nav-label">证据台账</span></button>
-    <button class="nav-item" data-view="review"><span class="nav-idx">07</span><span class="nav-label">反评审与缺口</span></button>
-    <button class="nav-item nav-item-alt" data-view="insights"><span class="nav-idx">附</span><span class="nav-label">经验判断</span></button>
-    <button class="nav-item" data-view="observability"><span class="nav-idx">系</span><span class="nav-label">运行简报</span></button>
-  </nav>
+      <p class="nav-group">支撑与追溯</p>
+      <button class="nav-item" data-view="evidence">
+        <svg viewBox="0 0 16 16" class="ico" aria-hidden="true"><path d="M4 1h6l3 3v11H4zM10 1v3h3"/></svg>
+        <span>证据台账</span>
+      </button>
+      <button class="nav-item" data-view="review">
+        <svg viewBox="0 0 16 16" class="ico" aria-hidden="true"><path d="M8 1.5l6.5 12H1.5zM7.2 5.8h1.6v4H7.2zM7.2 10.8h1.6v1.6H7.2z"/></svg>
+        <span>反评审与缺口</span>
+      </button>
+      <button class="nav-item" data-view="insights">
+        <svg viewBox="0 0 16 16" class="ico" aria-hidden="true"><path d="M8 1a5 5 0 013 9v2H5v-2a5 5 0 013-9zM5.5 13.5h5V15h-5z"/></svg>
+        <span>经验判断</span>
+        <em class="nav-flag">无数据</em>
+      </button>
 
-  <footer class="rail-foot">
-    <dl class="legend">
-      <dt><i class="dot dot-a"></i>A 级</dt><dd>单据/系统痕迹 · 点估+区间</dd>
-      <dt><i class="dot dot-b"></i>B 级</dt><dd>多方交叉 · 仅区间</dd>
-      <dt><i class="dot dot-c"></i>C 级</dt><dd>单方陈述 · 仅方向</dd>
-    </dl>
-    <p class="rail-asof" id="railAsOf"></p>
-  </footer>
-</aside>
+      <p class="nav-group">系统</p>
+      <button class="nav-item" data-view="observability">
+        <svg viewBox="0 0 16 16" class="ico" aria-hidden="true"><path d="M1.5 8.5l3.5-4 3 3.2L11.5 3H14v10H1.5z"/></svg>
+        <span>运行简报</span>
+      </button>
+    </nav>
 
-<main class="stage" id="stage">
-  <div class="loading" id="loading"><span></span><span></span><span></span></div>
-</main>
+    <div class="side-foot">
+      <p class="side-foot-t">证据等级</p>
+      <ul class="lvl">
+        <li><i class="lv lv-a">A</i><span>系统痕迹 · 点估+区间</span></li>
+        <li><i class="lv lv-b">B</i><span>多方交叉 · 仅区间</span></li>
+        <li><i class="lv lv-c">C</i><span>单方陈述 · 仅方向</span></li>
+      </ul>
+    </div>
+  </aside>
+
+  <main class="main" id="stage">
+    <div class="skeleton">
+      <div class="sk-line sk-w40"></div>
+      <div class="sk-cards"><div class="sk-card"></div><div class="sk-card"></div><div class="sk-card"></div><div class="sk-card"></div></div>
+      <div class="sk-line sk-w60"></div>
+      <div class="sk-block"></div>
+    </div>
+  </main>
+</div>
 
 <script type="module" src="/static/app.js"></script>
 </body>
