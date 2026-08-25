@@ -21,7 +21,18 @@
   --n100: #e9eaec;
   --n200: #dee0e3;
   --n300: #c9cdd4;
-  --n400: #8f959e;
+  /* 次要文字色。原值 #8f959e 只有 3.02:1（白底），全站 55 处 `color: var(--n400)`
+     全部低于 WCAG AA 对小字要求的 4.5:1，所以改 token 而不是逐处打补丁。
+
+     取值定在"落到任何一层背景上都达标"，而不是"落到目前用到的背景上达标"：
+     #6b7178 在白卡 4.93、画布 4.56 都够，但在徽标底 --n75 上只有 4.36。
+     今天恰好没有 n400 文字落在那层底色上，可是没有任何机制拦住以后有人这么写。
+     #676d74 三种背景分别 5.23 / 4.83 / 4.62，全部达标。
+
+     副作用要如实说明：AA 会把可用的灰阶压扁，n400 与 n500 因此非常接近，
+     纯靠明度已经拉不开层级。层级改为主要依赖字号与字重（见 .stat-k / .hint / .sub），
+     这比"把次要信息调淡到读不清"更可取。 */
+  --n400: #676d74;
   --n500: #646a73;
   --n600: #373c43;
   --n700: #1f2329;
@@ -165,7 +176,8 @@ body {
 
 .nav-flag {
   margin-left: auto; padding: 1px 5px; border-radius: 3px;
-  background: var(--n75); color: var(--n400);
+  /* 底色比白卡深，--n400 在这里只有 4.36:1，所以用更深的 --n500 */
+  background: var(--n75); color: var(--n500);
   font-size: 10px; font-style: normal; font-weight: 400;
 }
 
@@ -475,7 +487,8 @@ tr.sum td { background: var(--b50); font-weight: 600; border-top: 1px solid var(
 .form { display: grid; gap: 14px; max-width: 660px; }
 .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
 .form label { display: block; margin-bottom: 5px; font-size: 12.5px; color: var(--n500); }
-.form label em { color: var(--danger); font-style: normal; margin-left: 2px; }
+/* 必填星号：--danger 作纯色文字只有 3.53:1，用 --danger-fg（6.52:1） */
+.form label em { color: var(--danger-fg); font-style: normal; margin-left: 2px; }
 .inp {
   width: 100%; height: 32px; padding: 0 10px;
   background: var(--n0); border: 1px solid var(--n200); border-radius: var(--r);
@@ -585,7 +598,7 @@ textarea.inp { height: auto; min-height: 64px; padding: 8px 10px; resize: vertic
 .step-dot {
   width: 18px; height: 18px; border-radius: 50%; flex: none;
   display: grid; place-items: center; font-size: 10px; font-weight: 600;
-  background: var(--n75); color: var(--n400);
+  background: var(--n75); color: var(--n500);
 }
 .step-dot.done { background: var(--success-bg); color: var(--success-fg); }
 .step-dot.now { background: var(--b500); color: var(--n0); }

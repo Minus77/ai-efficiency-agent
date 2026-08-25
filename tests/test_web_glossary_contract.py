@@ -241,3 +241,75 @@ def test_readme_page_table_matches_actual_nav():
     # 别再出现写死的旧数字
     for stale in ("9 个视图", "15 个条目"):
         assert stale not in readme, f"README 仍写着过时的「{stale}」"
+
+
+# ---------------------------------------------------------------------------
+# 色彩对比度：浏览器里逐个视图量过，这里做静态钉子防回归
+# ---------------------------------------------------------------------------
+def _srgb_luminance(hex_color: str) -> float:
+    """WCAG 2.1 相对亮度。"""
+    h = hex_color.lstrip("#")
+    parts = [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+    chans = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in parts]
+    return 0.2126 * chans[0] + 0.7152 * chans[1] + 0.0722 * chans[2]
+
+
+def _contrast(fg: str, bg: str) -> float:
+    lo, hi = sorted((_srgb_luminance(fg), _srgb_luminance(bg)))
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def _token(name: str) -> str:
+    m = re.search(rf"--{name}:\s*(#[0-9a-fA-F]{{6}})", STYLES)
+    assert m, f"styles.css 里找不到 --{name}"
+    return m.group(1)
+
+
+def test_secondary_text_token_meets_wcag_aa():
+    """次要文字色必须在它实际会落到的所有背景上达到 AA（小字 4.5:1）。
+
+    原值 #8f959e 只有 3.02:1（白底），全站 55 处 `color: var(--n400)` 全部不达标——
+    「浅灰=次要信息」的直觉很容易把对比度压到看不清，而这类问题肉眼审查极易放过：
+    设计稿上"淡一点"看着更精致，实际用户在阳光下或低质量屏幕上就读不到了。
+
+    背景取三种：白卡、浅灰画布、表头/徽标底。
+    """
+    fg = _token("n400")
+    for bg_name in ("n0", "n50", "n75"):
+        r = _contrast(fg, _token(bg_name))
+        assert r >= 4.5, (
+            f"--n400 ({fg}) 在 --{bg_name} ({_token(bg_name)}) 上只有 {r:.2f}:1，"
+            f"低于 WCAG AA 要求的 4.5:1"
+        )
+
+
+def test_body_text_tokens_meet_wcag_aa():
+    """正文与强调文字色同样要达标——它们比次要文字更该达标。"""
+    for name in ("n500", "n600", "n700"):
+        r = _contrast(_token(name), _token("n0"))
+        assert r >= 4.5, f"--{name} 在白底上只有 {r:.2f}:1"
+
+
+def test_semantic_text_colors_meet_wcag_aa():
+    """语义色作文字时要用 -fg 变体。
+
+    --danger (#f54a45) 作纯色文字只有 3.53:1。必填星号一度直接用了它——
+    星号恰恰是最不能看不清的元素。
+    """
+    for name in ("success-fg", "warning-fg", "danger-fg"):
+        r = _contrast(_token(name), _token("n0"))
+        assert r >= 4.5, f"--{name} 在白底上只有 {r:.2f}:1"
+
+    # 必填星号不得直接用高饱和的 --danger
+    m = re.search(r"\.form label em\s*\{([^}]*)\}", STYLES)
+    assert m, "找不到必填星号的样式"
+    assert "var(--danger-fg)" in m.group(1), (
+        "必填星号应使用 --danger-fg；--danger 作文字只有 3.53:1"
+    )
+
+
+def test_evidence_grade_colors_meet_wcag_aa():
+    """A/B/C 徽标是判断结论强度的核心视觉元素，落在各自的浅色底上也要能读清。"""
+    for fg, bg in (("ga", "ga-bg"), ("gb", "gb-bg"), ("gc", "gc-bg")):
+        r = _contrast(_token(fg), _token(bg))
+        assert r >= 4.5, f"--{fg} 在 --{bg} 上只有 {r:.2f}:1"
