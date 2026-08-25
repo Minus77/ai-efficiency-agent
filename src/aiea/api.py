@@ -25,9 +25,13 @@ from pydantic import BaseModel, Field, field_validator
 
 from .clients import ClientRegistry, safe_slug
 from .config import default_workspace_root
+from .connector_intake import list_bindings, save_binding, sync_connector
+from .connectors import list_specs
+from .connectors.base import CredentialRef
 from .diagnose import DiagnosisNotReady, load_report, run_diagnosis
 from .intake import EVIDENCE_ROLES, list_materials, save_material
 from .knowledge import KnowledgeBase
+from .measure import capture_baseline, effect_summary, measure_effect
 from .seed import TENANT, run_seed_diagnosis
 from .tools import TOOL_REGISTRY, ToolContext
 from .workspace import Workspace
@@ -68,6 +72,33 @@ class ClientIn(BaseModel):
     def _name_required(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("客户名称必填")
+        return v.strip()
+
+
+class ConnectorBindIn(BaseModel):
+    """绑定连接器。secret 只入不出——响应与列表一律不回显。"""
+
+    key: str
+    key_id: str = ""
+    secret: str = ""
+
+
+class MetricIn(BaseModel):
+    """基线/后测的录入。metric 白名单校验在 measure.py，这里只做形状校验。"""
+
+    card_id: str
+    metric: str
+    value: float | None = None
+    timestamps: list[str] | None = None
+    sample_size: int | None = None
+    source: str
+    note: str = ""
+
+    @field_validator("source")
+    @classmethod
+    def _source_required(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("必须写明数据来源，否则无法复议")
         return v.strip()
 
 
@@ -477,6 +508,90 @@ def create_app(*, root: Path | str | None = None, use_llm: bool = False) -> Fast
     @app.get("/api/clients/{slug}/observability")
     def client_observability(slug: str) -> dict[str, Any]:
         return _view(slug, "observability")
+
+    # ======================= 连接器（L1 只读双轨） =======================
+    # 测试专用连接器不进客户可见目录
+    _HIDDEN_CONNECTORS = {"demo_ticketing", "demo_injection"}
+
+    @app.get("/api/connectors")
+    def connector_catalog() -> dict[str, Any]:
+        return {
+            "items": [
+                s.to_dict() for s in list_specs() if s.key not in _HIDDEN_CONNECTORS
+            ],
+            "note": (
+                "全部连接器只读，无一例外。等级上限是诚实声明的实际能力边界——"
+                "声明 C 级意味着该系统拿不到可量化的明细。"
+            ),
+        }
+
+    @app.get("/api/clients/{slug}/connectors")
+    def client_connectors(slug: str) -> dict[str, Any]:
+        checked = resolve_slug(slug)
+        return {"items": list_bindings(root=root, slug=checked)}
+
+    @app.post("/api/clients/{slug}/connectors")
+    def bind_connector(slug: str, payload: ConnectorBindIn) -> dict[str, Any]:
+        checked = resolve_slug(slug)
+        try:
+            record = save_binding(
+                root=root,
+                slug=checked,
+                key=payload.key,
+                credential=CredentialRef(
+                    provider=payload.key, key_id=payload.key_id, secret=payload.secret
+                ),
+            )
+        except KeyError as err:
+            raise HTTPException(status_code=400, detail=f"未知连接器：{payload.key}") from err
+        return record
+
+    @app.post("/api/clients/{slug}/connectors/{key}/sync")
+    def sync(slug: str, key: str) -> dict[str, Any]:
+        checked = resolve_slug(slug)
+        result = sync_connector(root=root, slug=checked, key=key)
+        if not result.get("ok"):
+            detail = result.get("note", "同步失败")
+            if result.get("next_action"):
+                detail = f"{detail}｜下一步：{result['next_action']}"
+            raise HTTPException(status_code=409, detail=detail)
+        return result
+
+    # ======================= 效果衡量 =======================
+    @app.get("/api/clients/{slug}/effect")
+    def effect(slug: str) -> dict[str, Any]:
+        checked = resolve_slug(slug)
+        return effect_summary(root=root, slug=checked)
+
+    @app.post("/api/clients/{slug}/baselines")
+    def add_baseline(slug: str, payload: MetricIn) -> dict[str, Any]:
+        checked = resolve_slug(slug)
+        r = capture_baseline(
+            root=root, slug=checked, card_id=payload.card_id, metric=payload.metric,
+            value=payload.value, timestamps=payload.timestamps,
+            sample_size=payload.sample_size, source=payload.source, note=payload.note,
+        )
+        if not r.get("ok"):
+            detail = r.get("note", "记录失败")
+            if r.get("next_action"):
+                detail = f"{detail}｜{r['next_action']}"
+            raise HTTPException(status_code=422, detail=detail)
+        return r
+
+    @app.post("/api/clients/{slug}/measurements")
+    def add_measurement(slug: str, payload: MetricIn) -> dict[str, Any]:
+        checked = resolve_slug(slug)
+        r = measure_effect(
+            root=root, slug=checked, card_id=payload.card_id, metric=payload.metric,
+            value=payload.value, timestamps=payload.timestamps,
+            sample_size=payload.sample_size, source=payload.source, note=payload.note,
+        )
+        if r.get("code") != "ok":
+            detail = r.get("note", "无法衡量")
+            if r.get("next_action"):
+                detail = f"{detail}｜{r['next_action']}"
+            raise HTTPException(status_code=422, detail=detail)
+        return r
 
     # ======================= 反馈（按客户） =======================
     @app.get("/api/clients/{slug}/feedback")
