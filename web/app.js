@@ -6,21 +6,26 @@
  * - 矩阵散点用服务端下发的 thresholds 定位，不在前端另算一套分界线
  */
 
-const API = {
-  overview: "/api/overview",
-  scenarios: "/api/scenarios",
-  matrix: "/api/matrix",
-  roi: "/api/roi",
-  roadmap: "/api/roadmap",
-  evidence: "/api/evidence",
-  review: "/api/counter-review",
-  gaps: "/api/gaps",
-  insights: "/api/insights",
-  observability: "/api/observability",
+/* 当前客户（tenant）。所有报告类请求都走 /api/clients/<slug>/...，
+ * 因此切换客户只需换 slug + 清缓存，视图代码完全复用。 */
+const state = { slug: null, client: null, clients: [], materials: [], role: "R1" };
+
+const PATHS = {
+  overview: "overview", scenarios: "scenarios", matrix: "matrix", roi: "roi",
+  roadmap: "roadmap", evidence: "evidence", review: "counter-review",
+  gaps: "gaps", insights: "insights", observability: "observability",
 };
+
+/** 当前客户的某个视图地址。 */
+const url = (key) => "/api/clients/" + encodeURIComponent(state.slug) + "/" + PATHS[key];
+
+const API = new Proxy({}, { get: (_t, key) => url(String(key)) });
 
 const cache = new Map();
 const stage = document.getElementById("stage");
+
+/** 切客户或跑完诊断后必须清掉，否则会显示上一个客户的数据。 */
+function clearCache() { cache.clear(); }
 
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -34,13 +39,46 @@ const FORM = { continuous: "连续作业", batch: "批量作业", fragmented: "�
 const lvl = (g) => `<span class="bdg bdg-${String(g).toLowerCase()}">${esc(g)} 级</span>`;
 const wf = (f) => `<span class="bdg bdg-n">${esc(FORM[f] || f)}</span>`;
 
-async function get(url) {
-  if (cache.has(url)) return cache.get(url);
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(url + " -> " + res.status);
+async function get(u) {
+  if (cache.has(u)) return cache.get(u);
+  const res = await fetch(u);
+  if (!res.ok) {
+    let detail = "";
+    try { detail = (await res.json()).detail || ""; } catch (e) { detail = ""; }
+    const err = new Error(detail || u + " -> " + res.status);
+    err.status = res.status;
+    throw err;
+  }
   const data = await res.json();
-  cache.set(url, data);
+  cache.set(u, data);
   return data;
+}
+
+async function send(u, { method = "POST", json, form } = {}) {
+  const init = { method };
+  if (json !== undefined) {
+    init.headers = { "Content-Type": "application/json" };
+    init.body = JSON.stringify(json);
+  }
+  if (form !== undefined) init.body = form;
+  const res = await fetch(u, init);
+  let data = {};
+  try { data = await res.json(); } catch (e) { data = {}; }
+  if (!res.ok) {
+    const err = new Error(data.detail || "请求失败（" + res.status + "）");
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+function toast(msg, kind = "") {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.className = "toast" + (kind ? " is-" + kind : "");
+  el.hidden = false;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { el.hidden = true; }, 4200);
 }
 
 const pageHead = (title, sub) =>
@@ -55,8 +93,28 @@ async function viewOverview() {
   const total = (gd.A || 0) + (gd.B || 0) + (gd.C || 0);
   const pct = (n) => ((n || 0) / (total || 1)) * 100;
 
+  const c = d.client;
+  const meta = [
+    c.industry || null,
+    c.headcount ? c.headcount + " 人" : null,
+    (c.departments || []).length ? "覆盖 " + c.departments.join("、") : null,
+  ].filter(Boolean).join("　·　");
+
   return `
-    ${pageHead("概览与假设", d.client.background)}
+    ${pageHead(c.short_name + " · AI 提效场景诊断", d.client.background)}
+
+    <div class="report-id">
+      <div class="report-id-l">
+        <p class="report-id-meta">${esc(meta)}</p>
+        <div class="report-id-tags">
+          <span class="bdg bdg-info">${esc(d.delivery_form)}</span>
+          <span class="bdg bdg-n">AS_OF ${esc(d.scope.as_of)}</span>
+          <span class="bdg bdg-${String(d.admission_probe.reachable_grade || "c").toLowerCase()}">${esc(d.admission_probe.reachable_grade)} 级可达</span>
+          ${c.out_of_scope ? `<span class="bdg bdg-warn">规模范围外</span>` : ""}
+        </div>
+      </div>
+      <p class="report-id-note">${esc(d.disclaimer)}</p>
+    </div>
 
     <div class="stats">
       <div class="stat stat-primary">
@@ -537,21 +595,243 @@ async function viewObservability() {
     </div>`;
 }
 
+/* ============================ 客户列表 ============================ */
+const STATUS_LABEL = { draft: "待上传材料", materials: "材料已上传", diagnosed: "已出报告" };
+
+function initial(name) {
+  const s = String(name || "?").trim();
+  return s ? s.slice(0, 1) : "?";
+}
+
+function steps(c) {
+  const stage = c.status === "diagnosed" ? 3 : c.material_count > 0 ? 2 : 1;
+  const cell = (n, label) => {
+    const cls = stage > n ? "done" : stage === n ? "now" : "";
+    return `<span class="step-dot ${cls}" title="${esc(label)}">${stage > n ? "\u2713" : n}</span>`;
+  };
+  return `
+    <div class="client-steps">
+      ${cell(1, "建档")}<span class="step-line"></span>
+      ${cell(2, "上传材料")}<span class="step-line"></span>
+      ${cell(3, "出报告")}
+      <span style="margin-left:4px">${esc(STATUS_LABEL[c.status] || c.status)}</span>
+    </div>`;
+}
+
+async function viewClients() {
+  const data = await get("/api/clients");
+  state.clients = data.items;
+
+  const card = (c) => `
+    <div class="client-card ${c.slug === state.slug ? "is-current" : ""}" data-slug="${esc(c.slug)}">
+      <div class="client-card-h">
+        <div>
+          <h3>${esc(c.name)}</h3>
+          <p>${esc(c.industry || "未声明行业")} · ${c.headcount ? c.headcount + " 人" : "规模未声明"}</p>
+        </div>
+        <span class="dot-status st-${esc(c.status)}" title="${esc(STATUS_LABEL[c.status] || "")}"></span>
+      </div>
+      <div class="client-meta">
+        ${c.is_preset ? `<span class="bdg bdg-info">预置示例</span>` : ""}
+        ${c.delivery_form ? `<span class="bdg bdg-n">${esc(c.delivery_form)}</span>` : ""}
+        ${c.reachable_grade ? `<span class="bdg bdg-${c.reachable_grade.toLowerCase()}">${esc(c.reachable_grade)} 级可达</span>` : ""}
+        <span class="bdg bdg-n">${c.material_count} 份材料</span>
+        ${c.out_of_scope ? `<span class="bdg bdg-warn">规模范围外</span>` : ""}
+      </div>
+      ${steps(c)}
+      ${c.out_of_scope ? `<p class="hint hint-warn">${esc(c.scope_note)}</p>` : ""}
+      <div class="client-actions">
+        <button class="btn btn-sm btn-primary" data-open="${esc(c.slug)}">打开</button>
+        <button class="btn btn-sm btn-ghost" data-intake="${esc(c.slug)}">材料</button>
+        ${c.is_preset ? "" : `<button class="btn btn-sm btn-danger-ghost" data-del="${esc(c.slug)}">删除</button>`}
+      </div>
+    </div>`;
+
+  return `
+    ${pageHead("客户列表", "每个客户一个独立工作区：材料、证据台账、报告互相隔离，检索强制带客户过滤")}
+    <div class="sec">
+      <div class="sec-h">
+        <h3>共 ${data.items.length} 个客户</h3>
+        <p>点「打开」切换到该客户的诊断报告；点「材料」去上传或补充导出</p>
+      </div>
+      <div class="client-grid">${data.items.map(card).join("")}</div>
+    </div>`;
+}
+
+/* ============================ 材料采集 ============================ */
+const ROLE_OPTIONS = [
+  ["R1", "时间戳导出（首选，A 级）"],
+  ["R2", "补数表（兜底，B 级）"],
+  ["R3", "多方交叉材料（B 级）"],
+  ["R4", "工时记录（A 级）"],
+  ["R5", "纪要类文档（C 级，仅定位痛点）"],
+];
+
+async function viewIntake() {
+  if (!state.slug) return pageHead("材料采集", "请先在客户列表选择或新建一个客户");
+
+  const [mats, clients] = await Promise.all([
+    get("/api/clients/" + encodeURIComponent(state.slug) + "/materials"),
+    get("/api/clients"),
+  ]);
+  state.materials = mats.items;
+  const me = clients.items.find((c) => c.slug === state.slug) || {};
+  const usable = mats.items.filter((m) => m.stored_as);
+  const hasTs = usable.some((m) => (m.timestamp_columns || []).length);
+
+  const matRow = (m) => `
+    <div class="mat ${m.stored_as ? "" : "is-rejected"}">
+      <span class="mat-ico">${esc((m.filename || "?").split(".").pop().slice(0, 4).toUpperCase())}</span>
+      <div class="mat-body">
+        <p class="mat-name">${esc(m.filename)}</p>
+        <p class="mat-meta">
+          ${m.stored_as ? `${m.row_count || 0} 条记录 · ${(m.columns || []).length} 个字段` : esc(m.reason || "已拒收")}
+          ${m.evidence_role ? " · " + esc(m.evidence_role) : ""}
+        </p>
+        <div class="mat-tags">
+          ${m.reachable_grade ? `<span class="bdg bdg-${m.reachable_grade.toLowerCase()}">${esc(m.reachable_grade)} 级可达</span>` : ""}
+          ${(m.timestamp_columns || []).length ? `<span class="bdg bdg-ok">含时间戳</span>` : (m.stored_as ? `<span class="bdg bdg-warn">无时间戳</span>` : "")}
+          ${m.summary_only ? `<span class="bdg bdg-warn">仅汇总</span>` : ""}
+          ${m.injection_suspected ? `<span class="bdg bdg-danger">检出注入·已降级为数据</span>` : ""}
+        </div>
+      </div>
+    </div>`;
+
+  return `
+    ${pageHead("材料采集", "一次性说清要什么材料、每份能算出什么——这比反复追问更省客户时间，也更容易拿到高等级证据")}
+
+    <div class="sec">
+      <div class="sec-h"><h3>当前客户</h3><p>${esc(me.name || state.slug)}</p></div>
+      <div class="role-pick">
+        <label for="roleSel">这份材料属于</label>
+        <select id="roleSel" class="inp" style="max-width:280px">
+          ${ROLE_OPTIONS.map(([v, t]) => `<option value="${v}" ${v === state.role ? "selected" : ""}>${esc(t)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="drop" id="drop">
+        <svg viewBox="0 0 24 24" class="drop-ico" aria-hidden="true"><path d="M12 2l5 5h-4v7h-2V7H7zM4 18h16v3H4z"/></svg>
+        <h3>把导出文件拖进来，或点击选择</h3>
+        <p>建议先给「含时间戳的明细导出」——它同时能算出频次与耗时，是唯一能给到 A 级证据的材料类型</p>
+        <button class="btn btn-primary" id="pickBtn">选择文件</button>
+        <input type="file" id="fileInput" multiple hidden
+               accept=".csv,.tsv,.xlsx,.xls,.json,.md,.txt,.pdf,.png,.jpg,.jpeg,.docx" />
+        <p class="drop-types">支持 CSV / Excel / PDF / 图片 / 文档，单文件 20MB 以内。含宏的 .xlsm 会被拒收。</p>
+        <div class="bar" id="upBar" hidden><span style="width:0"></span></div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-h">
+        <h3>已上传 ${usable.length} 份</h3>
+        <p>${usable.length ? (hasTs ? "已有含时间戳的材料，可出完整诊断" : "目前都没有时间戳列，ROI 只能给区间") : "还没有可用材料"}</p>
+      </div>
+      ${mats.items.length ? `<div class="mat-list">${mats.items.map(matRow).join("")}</div>`
+        : `<div class="card"><p style="margin:0;color:var(--n400);font-size:13px">还没有上传任何材料。</p></div>`}
+    </div>
+
+    <div class="sec">
+      <div class="sec-h"><h3>建议索取的材料</h3><p>每份都说明能算出什么，客户理解这是为他自己的报告质量服务</p></div>
+      <div class="checklist">
+        <div class="cl-item">
+          <span class="cl-p">1</span>
+          <div>
+            <p class="cl-name">业务系统明细导出（工单 / 订单 / 台账，CSV，含创建与完成时间）</p>
+            <p class="cl-why">用它算清每个环节的真实频次和耗时，比估算准得多</p>
+            <p class="cl-yield">可算出：频次（记录条数）+ 耗时（时间戳间隔）+ 作业形态 → A 级证据</p>
+          </div>
+        </div>
+        <div class="cl-item">
+          <span class="cl-p">2</span>
+          <div>
+            <p class="cl-name">表格类文件的修改记录或历史版本（含修改时间）</p>
+            <p class="cl-why">用它判断这件事是不是集中在几天里成批做完</p>
+            <p class="cl-yield">可算出：作业形态（聚集性）→ 决定收益能否全额计入</p>
+          </div>
+        </div>
+        <div class="cl-item">
+          <span class="cl-p">3</span>
+          <div>
+            <p class="cl-name">任意 2 份相关会议纪要</p>
+            <p class="cl-why">用来看你们自己觉得痛在哪，帮我们选对要深挖的环节</p>
+            <p class="cl-yield">仅用于定位痛点，不用于算数字 → C 级证据</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="run-bar">
+      <div>
+        <h3>${me.status === "diagnosed" ? "重新跑一次诊断" : "开始诊断"}</h3>
+        <p>${usable.length
+            ? "将解析已上传材料、推导操作环节、逐条算 ROI 并生成报告。所有数字都从材料算出，取不到就明确标缺口。"
+            : "还没有可用材料。至少上传一份业务系统导出，本工具不会凭空生成结论。"}</p>
+      </div>
+      <button class="btn btn-on-blue" id="runBtn" ${usable.length ? "" : "disabled"}>
+        ${me.status === "diagnosed" ? "重新诊断" : "开始诊断"}
+      </button>
+    </div>`;
+}
+
+/* ============================ 空态 ============================ */
+function viewNeedsDiagnosis(msg) {
+  return `
+    ${pageHead("还没有诊断报告", "")}
+    <div class="card">
+      <div class="empty">
+        <svg viewBox="0 0 24 24" class="empty-ico" aria-hidden="true"><path d="M4 3h11l5 5v13H4zM15 3v5h5"/></svg>
+        <h3>这个客户还没有出报告</h3>
+        <p>${esc(msg || "请先上传材料，再点『开始诊断』。所有结论都从材料推导，没有材料就没有结论。")}</p>
+        <button class="btn btn-primary" data-goto="intake">去上传材料</button>
+      </div>
+    </div>`;
+}
+
+function viewNoClient() {
+  return `
+    ${pageHead("先选一个客户", "")}
+    <div class="card">
+      <div class="empty">
+        <svg viewBox="0 0 24 24" class="empty-ico" aria-hidden="true"><path d="M12 2a5 5 0 110 10 5 5 0 010-10zM2 22c0-4.4 4.5-7 10-7s10 2.6 10 7z"/></svg>
+        <h3>还没有选择客户</h3>
+        <p>每个客户是一个独立工作区。选一个已有客户，或新建一个开始采集材料。</p>
+        <button class="btn btn-primary" data-goto="clients">查看客户列表</button>
+      </div>
+    </div>`;
+}
+
 /* ============================ 路由与交互 ============================ */
 const VIEWS = {
+  clients: viewClients, intake: viewIntake,
   overview: viewOverview, scenarios: viewScenarios, matrix: viewMatrix,
   roi: viewRoi, roadmap: viewRoadmap, evidence: viewEvidence,
   review: viewReview, insights: viewInsights, observability: viewObservability,
 };
+const REPORT_VIEWS = new Set([
+  "overview", "scenarios", "matrix", "roi", "roadmap", "evidence", "review", "insights", "observability",
+]);
+
+let currentView = "overview";
 
 async function render(name) {
+  currentView = name;
   try {
+    if (REPORT_VIEWS.has(name) && !state.slug) {
+      stage.innerHTML = `<div class="view">` + viewNoClient() + `</div>`;
+      wire();
+      return;
+    }
     const html = await VIEWS[name]();
     stage.innerHTML = `<div class="view">` + html + `</div>`;
     window.scrollTo({ top: 0, behavior: "instant" });
     wire();
   } catch (err) {
-    stage.innerHTML = `<div class="view">` + pageHead("加载失败", String(err.message)) + `</div>`;
+    // 409 = 还没跑诊断：给可执行下一步，而不是一句"加载失败"
+    if (err.status === 409) {
+      stage.innerHTML = `<div class="view">` + viewNeedsDiagnosis(err.message) + `</div>`;
+    } else {
+      stage.innerHTML = `<div class="view">` + pageHead("加载失败", String(err.message)) + `</div>`;
+    }
+    wire();
   }
 }
 
@@ -561,7 +841,84 @@ function highlight(el) {
   el.animate([{ background: "#eff4ff" }, { background: "transparent" }], { duration: 1400, easing: "ease-out" });
 }
 
+async function switchClient(slug) {
+  state.slug = slug;
+  clearCache();
+  const c = state.clients.find((x) => x.slug === slug);
+  state.client = c || null;
+  paintPicker();
+  updateFlags();
+}
+
+function paintPicker() {
+  const c = state.client;
+  document.getElementById("pickerAvatar").textContent = c ? initial(c.name) : "\u2014";
+  document.getElementById("pickerName").textContent = c ? c.name : "选择客户";
+  document.getElementById("tbSub").textContent = c
+    ? [c.industry || "未声明行业", c.headcount ? c.headcount + " 人" : null, c.delivery_form || null]
+        .filter(Boolean).join(" · ")
+    : "中小企业 AI 提效场景识别";
+}
+
+function updateFlags() {
+  const flag = document.getElementById("flagMaterials");
+  const n = state.client ? state.client.material_count : 0;
+  if (n > 0) { flag.textContent = String(n); flag.hidden = false; } else { flag.hidden = true; }
+}
+
+async function reloadClients() {
+  clearCache();
+  const data = await get("/api/clients");
+  state.clients = data.items;
+  if (state.slug) {
+    state.client = data.clients ? null : data.items.find((c) => c.slug === state.slug) || null;
+  }
+  paintPicker();
+  updateFlags();
+  return data.items;
+}
+
 function wire() {
+  stage.querySelectorAll("[data-goto]").forEach((el) =>
+    el.addEventListener("click", () => go(el.dataset.goto))
+  );
+
+  stage.querySelectorAll("[data-open]").forEach((el) =>
+    el.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await switchClient(el.dataset.open);
+      await go("overview");
+    })
+  );
+  stage.querySelectorAll("[data-intake]").forEach((el) =>
+    el.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await switchClient(el.dataset.intake);
+      await go("intake");
+    })
+  );
+  stage.querySelectorAll("[data-del]").forEach((el) =>
+    el.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const slug = el.dataset.del;
+      const c = state.clients.find((x) => x.slug === slug);
+      if (!window.confirm(`删除客户「${c ? c.name : slug}」？\n\n该客户的材料、证据台账与报告会一并删除，且不可恢复。`)) return;
+      try {
+        await send("/api/clients/" + encodeURIComponent(slug), { method: "DELETE" });
+        if (state.slug === slug) { state.slug = null; state.client = null; }
+        await reloadClients();
+        toast("已删除该客户及其工作区", "ok");
+        await go("clients");
+      } catch (err) { toast(String(err.message), "err"); }
+    })
+  );
+  stage.querySelectorAll(".client-card").forEach((el) =>
+    el.addEventListener("click", async () => {
+      await switchClient(el.dataset.slug);
+      await go("overview");
+    })
+  );
+
   stage.querySelectorAll("[data-card]").forEach((el) =>
     el.addEventListener("click", async () => {
       const id = el.dataset.card;
@@ -570,7 +927,6 @@ function wire() {
       highlight(hit ? hit.closest(".item") : null);
     })
   );
-
   stage.querySelectorAll("[data-ref]").forEach((el) =>
     el.addEventListener("click", async () => {
       const id = el.dataset.ref;
@@ -579,6 +935,86 @@ function wire() {
     })
   );
 
+  wireIntake();
+  wireFeedback();
+}
+
+function wireIntake() {
+  const drop = document.getElementById("drop");
+  if (!drop) return;
+
+  const input = document.getElementById("fileInput");
+  const bar = document.getElementById("upBar");
+  const roleSel = document.getElementById("roleSel");
+  if (roleSel) roleSel.addEventListener("change", () => { state.role = roleSel.value; });
+
+  const upload = async (files) => {
+    const list = [...files];
+    if (!list.length) return;
+    bar.hidden = false;
+    let done = 0;
+    let rejected = 0;
+    for (const file of list) {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("evidence_role", state.role);
+      try {
+        const rec = await send("/api/clients/" + encodeURIComponent(state.slug) + "/materials", { form });
+        if (!rec.stored_as) rejected += 1;
+      } catch (err) {
+        rejected += 1;
+        toast(file.name + "：" + err.message, "err");
+      }
+      done += 1;
+      bar.querySelector("span").style.width = Math.round((done / list.length) * 100) + "%";
+    }
+    bar.hidden = true;
+    bar.querySelector("span").style.width = "0";
+    await reloadClients();
+    clearCache();
+    toast(
+      rejected ? `已处理 ${done} 份，其中 ${rejected} 份被拒收（见列表说明）` : `已上传并解析 ${done} 份材料`,
+      rejected ? "err" : "ok"
+    );
+    await go("intake");
+  };
+
+  document.getElementById("pickBtn").addEventListener("click", () => input.click());
+  input.addEventListener("change", () => upload(input.files));
+
+  ["dragenter", "dragover"].forEach((ev) =>
+    drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("is-over"); })
+  );
+  ["dragleave", "drop"].forEach((ev) =>
+    drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("is-over"); })
+  );
+  drop.addEventListener("drop", (e) => upload(e.dataTransfer.files));
+
+  const runBtn = document.getElementById("runBtn");
+  if (runBtn) {
+    runBtn.addEventListener("click", async () => {
+      runBtn.disabled = true;
+      const original = runBtn.textContent;
+      runBtn.textContent = "诊断中\u2026";
+      try {
+        const r = await send("/api/clients/" + encodeURIComponent(state.slug) + "/diagnose");
+        clearCache();
+        await reloadClients();
+        toast(
+          `诊断完成：${r.scenarios} 个环节，${r.quantified} 个可给金额，${r.direction_only} 个仅方向`,
+          "ok"
+        );
+        await go("overview");
+      } catch (err) {
+        toast(String(err.message), "err");
+        runBtn.disabled = false;
+        runBtn.textContent = original;
+      }
+    });
+  }
+}
+
+function wireFeedback() {
   const f = document.getElementById("fbForm");
   if (!f) return;
   f.addEventListener("submit", async (e) => {
@@ -598,13 +1034,7 @@ function wire() {
     msg.className = "msg";
     msg.textContent = "提交中...";
     try {
-      const res = await fetch("/api/feedback", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "提交失败");
+      const data = await send("/api/clients/" + encodeURIComponent(state.slug) + "/feedback", { json: body });
       msg.className = "msg msg-ok";
       msg.textContent = "已记录（" + data.feedback_id + "）。冲突的反馈我们不合并——分歧本身就是信号。";
       f.reason.value = "";
@@ -625,11 +1055,135 @@ document.getElementById("nav").addEventListener("click", (e) => {
   if (btn) go(btn.dataset.view);
 });
 
+/* ---------------- 客户切换器 ---------------- */
+const pickerBtn = document.getElementById("pickerBtn");
+const pickerPop = document.getElementById("pickerPop");
+
+function closePicker() {
+  pickerPop.hidden = true;
+  pickerBtn.setAttribute("aria-expanded", "false");
+}
+
+pickerBtn.addEventListener("click", async () => {
+  if (!pickerPop.hidden) { closePicker(); return; }
+  const items = await reloadClients();
+  pickerPop.innerHTML = items.length
+    ? items.map((c) => `
+        <button class="picker-item ${c.slug === state.slug ? "is-current" : ""}" data-pick="${esc(c.slug)}" role="option">
+          <span class="picker-avatar">${esc(initial(c.name))}</span>
+          <span class="picker-item-main">
+            <span class="picker-item-name">${esc(c.name)}</span>
+            <span class="picker-item-meta">${esc(STATUS_LABEL[c.status] || c.status)} · ${c.material_count} 份材料${c.is_preset ? " · 预置示例" : ""}</span>
+          </span>
+          <span class="dot-status st-${esc(c.status)}"></span>
+        </button>`).join("")
+    : `<p class="picker-empty">还没有客户，点右侧「新建客户」开始</p>`;
+  pickerPop.querySelectorAll("[data-pick]").forEach((el) =>
+    el.addEventListener("click", async () => {
+      closePicker();
+      await switchClient(el.dataset.pick);
+      await go(REPORT_VIEWS.has(currentView) ? currentView : "overview");
+    })
+  );
+  pickerPop.hidden = false;
+  pickerBtn.setAttribute("aria-expanded", "true");
+});
+
+document.addEventListener("click", (e) => {
+  if (!document.getElementById("picker").contains(e.target)) closePicker();
+});
+
+/* ---------------- 新建客户弹窗 ---------------- */
+const modal = document.getElementById("modal");
+const modalBody = document.getElementById("modalBody");
+
+function closeModal() { modal.hidden = true; modalBody.innerHTML = ""; }
+modal.addEventListener("click", (e) => { if (e.target.dataset.close !== undefined) closeModal(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeModal(); closePicker(); } });
+
+document.getElementById("newClientBtn").addEventListener("click", () => {
+  modalBody.innerHTML = `
+    <form class="form" id="ncForm">
+      <div>
+        <label for="ncName">客户名称<em>*</em></label>
+        <input id="ncName" class="inp" placeholder="如：明辉家居建材" required />
+      </div>
+      <div class="form-row">
+        <div>
+          <label for="ncIndustry">行业</label>
+          <input id="ncIndustry" class="inp" placeholder="如：家居建材分销" />
+        </div>
+        <div>
+          <label for="ncHead">人数</label>
+          <input id="ncHead" class="inp" type="number" min="1" max="100000" placeholder="如：86" />
+          <p class="hint-inline">建议 20\u2013200 人；超出范围仍可做，但会标注"基准参考有限"</p>
+        </div>
+      </div>
+      <div class="form-row">
+        <div>
+          <label for="ncDepts">覆盖部门（逗号分隔）</label>
+          <input id="ncDepts" class="inp" placeholder="如：客服, 财务, 销售" />
+        </div>
+        <div>
+          <label for="ncAsOf">数据口径日期 AS_OF</label>
+          <input id="ncAsOf" class="inp" type="date" />
+          <p class="hint-inline">全部结论的时效基准，留空则用今天</p>
+        </div>
+      </div>
+      <div>
+        <label for="ncBg">背景（可选）</label>
+        <textarea id="ncBg" class="inp" placeholder="一句话说清这家公司在做什么、老板最关心什么"></textarea>
+      </div>
+      <button class="btn btn-primary" type="submit">创建并去上传材料</button>
+      <p class="msg" id="ncMsg"></p>
+    </form>`;
+  modal.hidden = false;
+  document.getElementById("ncName").focus();
+
+  document.getElementById("ncForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const msg = document.getElementById("ncMsg");
+    const name = document.getElementById("ncName").value.trim();
+    if (!name) { msg.className = "msg msg-err"; msg.textContent = "客户名称必填"; return; }
+    const head = document.getElementById("ncHead").value;
+    const payload = {
+      name,
+      industry: document.getElementById("ncIndustry").value.trim(),
+      headcount: head ? Number(head) : null,
+      departments: document.getElementById("ncDepts").value.split(/[,，]/).map((s) => s.trim()).filter(Boolean),
+      background: document.getElementById("ncBg").value.trim(),
+      as_of: document.getElementById("ncAsOf").value || null,
+    };
+    msg.className = "msg"; msg.textContent = "创建中\u2026";
+    try {
+      const c = await send("/api/clients", { json: payload });
+      closeModal();
+      await reloadClients();
+      await switchClient(c.slug);
+      toast(
+        c.out_of_scope ? `已创建「${c.name}」。注意：${c.scope_note}` : `已创建「${c.name}」，接下来上传材料`,
+        c.out_of_scope ? "" : "ok"
+      );
+      await go("intake");
+    } catch (err) {
+      msg.className = "msg msg-err";
+      msg.textContent = String(err.message);
+    }
+  });
+});
+
+/* ---------------- 启动 ---------------- */
 (async function boot() {
-  const d = await get(API.overview);
-  document.getElementById("tbClient").textContent =
-    d.client.short_name + " · " + d.client.headcount + " 人 · " + d.client.industry;
-  document.getElementById("tbDelivery").textContent = d.delivery_form;
-  document.getElementById("tbAsOf").textContent = "AS_OF " + d.scope.as_of;
-  await render("overview");
+  try {
+    const items = await reloadClients();
+    const diagnosed = items.find((c) => c.status === "diagnosed") || items[0];
+    if (diagnosed) {
+      await switchClient(diagnosed.slug);
+      await go("overview");
+    } else {
+      await go("clients");
+    }
+  } catch (err) {
+    stage.innerHTML = `<div class="view">` + pageHead("启动失败", String(err.message)) + `</div>`;
+  }
 })();

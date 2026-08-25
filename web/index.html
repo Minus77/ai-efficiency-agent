@@ -3,30 +3,46 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>AI 提效场景诊断 · 明辉家居建材</title>
+<title>AI 提效场景诊断</title>
 <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
 <header class="topbar">
   <div class="topbar-l">
-    <div class="logo" aria-hidden="true">
-      <span class="logo-mark"></span>
-    </div>
+    <div class="logo" aria-hidden="true"><span class="logo-mark"></span></div>
     <div class="topbar-title">
       <h1>AI 提效场景诊断</h1>
-      <p id="tbClient">明辉家居建材</p>
+      <p id="tbSub">中小企业 AI 提效场景识别</p>
     </div>
   </div>
+
   <div class="topbar-r">
-    <span class="tag tag-primary" id="tbDelivery">完整诊断</span>
-    <span class="tag" id="tbAsOf">AS_OF —</span>
-    <span class="tag tag-ghost">决策参考，非投资承诺</span>
+    <div class="picker" id="picker">
+      <button class="picker-btn" id="pickerBtn" aria-haspopup="listbox" aria-expanded="false">
+        <span class="picker-avatar" id="pickerAvatar">—</span>
+        <span class="picker-name" id="pickerName">选择客户</span>
+        <svg viewBox="0 0 16 16" class="picker-caret" aria-hidden="true"><path d="M4 6l4 4 4-4z"/></svg>
+      </button>
+      <div class="picker-pop" id="pickerPop" role="listbox" hidden></div>
+    </div>
+    <button class="btn btn-primary btn-sm" id="newClientBtn">+ 新建客户</button>
   </div>
 </header>
 
 <div class="shell">
   <aside class="side">
-    <nav class="nav" id="nav" aria-label="报告章节">
+    <nav class="nav" id="nav" aria-label="导航">
+      <p class="nav-group">工作台</p>
+      <button class="nav-item" data-view="clients">
+        <svg viewBox="0 0 16 16" class="ico" aria-hidden="true"><path d="M2 3h5v5H2zM9 3h5v5H9zM2 9h5v4H2zM9 9h5v4H9z"/></svg>
+        <span>客户列表</span>
+      </button>
+      <button class="nav-item" data-view="intake">
+        <svg viewBox="0 0 16 16" class="ico" aria-hidden="true"><path d="M8 1l4 4h-3v5H7V5H4zM2 12h12v3H2z"/></svg>
+        <span>材料采集</span>
+        <em class="nav-flag" id="flagMaterials" hidden>0</em>
+      </button>
+
       <p class="nav-group">诊断结论</p>
       <button class="nav-item is-active" data-view="overview">
         <svg viewBox="0 0 16 16" class="ico" aria-hidden="true"><path d="M2 9h4v5H2zM6.5 4h3v10h-3zM11 6.5h3V14h-3z"/></svg>
@@ -90,6 +106,19 @@
     </div>
   </main>
 </div>
+
+<div class="modal" id="modal" hidden>
+  <div class="modal-mask" data-close></div>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-h">
+      <h3 id="modalTitle">新建客户</h3>
+      <button class="modal-x" data-close aria-label="关闭">×</button>
+    </div>
+    <div class="modal-b" id="modalBody"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
 
 <script type="module" src="/static/app.js"></script>
 </body>
