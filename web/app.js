@@ -840,6 +840,7 @@ async function viewInsights() {
     <div class="expert-hd">
       <h3>${esc(d.title)}</h3>
       <span class="bdg bdg-n">无数据支撑</span>
+      ${d.generated_by ? `<span class="bdg bdg-info">${esc(d.generated_by)}</span>` : ""}
       <p>${esc(d.notice)}</p>
     </div>
     ${d.items.map((i) => `
@@ -849,7 +850,7 @@ async function viewInsights() {
           <dt>依据</dt><dd>${esc(i.basis)}</dd>
           <dt>建议验证</dt><dd>${esc(i.verification_suggestion)}</dd>
         </dl>
-        <p class="exp-lab">${esc(i.label)}　·　本区按设计不含任何金额与回本周期</p>
+        <p class="exp-lab">${esc(i.label)}${i.source_label ? "　·　" + esc(i.source_label) : ""}　·　本区按设计不含任何金额与回本周期</p>
       </div>`).join("")}`;
 }
 

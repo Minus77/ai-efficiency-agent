@@ -634,26 +634,32 @@ def run_seed_diagnosis(
             "让一名销售配合记录 3 个工作日的实际操作，即可把这块从盲区变成 A 级证据。",
         ),
     ]
+    # 每条候选都带上来源，一路传到交付物：没有数据支撑的判断，
+    # 是顾问定稿的还是模型现场生成的，读者该给的信任完全不同。
     if llm is not None:
         generated = generate_insights(cards, llm=llm)
         candidate_specs = [
-            (g["statement"], g["basis"], g["verification_suggestion"]) for g in generated
+            (g["statement"], g["basis"], g["verification_suggestion"], g.get("source", "llm"))
+            for g in generated
         ]
     else:
-        candidate_specs = curated_insight_specs
+        candidate_specs = [(s, b, v, "curated") for s, b, v in curated_insight_specs]
 
-    for statement, basis, verify in candidate_specs:
+    for statement, basis, verify, source in candidate_specs:
         # 无论来源，一律过 insight_propose 的金额检查后才入库
         r = TOOL_REGISTRY["insight_propose"](
-            ctx, statement=statement, basis=basis, verification_suggestion=verify
+            ctx, statement=statement, basis=basis,
+            verification_suggestion=verify, source=source,
         )
         if not r.ok:
             continue
         insights.append(r.data["insight"])
     if not insights:
+        # 模型产出全被拒（例如都含金额）时退回定稿内容，并如实标为 curated
         for statement, basis, verify in curated_insight_specs:
             r = TOOL_REGISTRY["insight_propose"](
-                ctx, statement=statement, basis=basis, verification_suggestion=verify
+                ctx, statement=statement, basis=basis,
+                verification_suggestion=verify, source="curated",
             )
             if r.ok:
                 insights.append(r.data["insight"])

@@ -310,6 +310,9 @@ def run_diagnosis(
             statement=item["statement"],
             basis=item.get("basis", ""),
             verification_suggestion=item["verification_suggestion"],
+            # 来源要一路带到交付物：没有数据支撑的判断，是顾问写的还是
+            # 模型现场生成的，读者该给的信任完全不同。
+            source=item.get("source", "curated"),
         )
         if r.ok:
             insights.append(r.data["insight"])

@@ -12,6 +12,7 @@ import pytest
 
 from aiea.agents import generate_counter_review, generate_insights
 from aiea.llm import LLMClient
+from aiea.tools import TOOL_REGISTRY
 
 CARDS = [
     {
@@ -253,3 +254,56 @@ def test_salvage_helper_handles_plain_truncated_array():
 
     items = salvage_json_objects('{"rebuttals":[{"a":1},{"a":2},{"a":')
     assert items == [{"a": 1}, {"a": 2}]
+
+
+# ---------------------------------------------------------------------------
+# 洞察来源必须一路传到交付物
+# ---------------------------------------------------------------------------
+def _insight_ctx(tmp=None):
+    """构造一个最小可用的工具上下文。洞察相关工具不落盘，用临时目录即可。"""
+    import tempfile
+    from pathlib import Path
+
+    from aiea.knowledge import KnowledgeBase
+    from aiea.tools import ToolContext
+    from aiea.workspace import Workspace
+
+    root = Path(tmp or tempfile.mkdtemp())
+    return ToolContext(
+        tenant="t1",
+        workspace=Workspace(tenant="t1", root=root),
+        kb=KnowledgeBase.load_seed(),
+    )
+
+
+def test_insight_carries_source_through_tool_layer():
+    """generate_insights 标了 source，但它必须活着穿过 insight_propose。
+
+    反评审页会显示「模型现场生成」还是「定稿内容」，经验判断页却不显示——
+    因为 Insight 模型没有 source 字段，工具层一转就丢了。
+    对读者来说这两块的来源同样重要：一条没有数据支撑的判断，
+    是顾问写的还是模型现场编的，可信度完全不同。
+    """
+    from aiea.models import Insight
+
+    assert "source" in Insight.model_fields, "Insight 必须带 source，否则来源在工具层丢失"
+
+    r = TOOL_REGISTRY["insight_propose"](
+        _insight_ctx(),
+        statement="上游口径不统一可能才是真瓶颈",
+        basis="纪要显示台账口径不一致",
+        verification_suggestion="统计一个周期内差异项的成因分布",
+        source="llm",
+    )
+    assert r.ok
+    assert r.data["insight"]["source"] == "llm", "工具层必须原样透传来源"
+
+
+def test_insight_source_defaults_to_curated():
+    """不传来源时按「定稿内容」处理——不能默认成模型生成，那是在夸大自动化程度。"""
+    r = TOOL_REGISTRY["insight_propose"](
+        _insight_ctx(),
+        statement="某个方向值得试", basis="经验", verification_suggestion="小范围验证",
+    )
+    assert r.ok
+    assert r.data["insight"]["source"] == "curated"

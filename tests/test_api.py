@@ -123,3 +123,21 @@ def test_frontend_is_served(client):
     r = client.get("/")
     assert r.status_code == 200
     assert "明辉" in r.text or "提效" in r.text
+
+
+def test_insights_endpoint_exposes_provenance(client):
+    """经验判断必须标明来源。
+
+    这一区按设计"无数据支撑"，那么它唯一的可信度线索就是来源：
+    顾问定稿的判断与模型现场生成的判断，读者该给的信任完全不同。
+    反评审页早就有「模型现场生成 / 定稿内容」标记，这里此前是缺的。
+    """
+    body = client.get("/api/insights").json()
+    assert body["generated_by"], "缺少整体来源标记"
+    for item in body["items"]:
+        assert item["source"] in ("curated", "llm", "fallback"), item.get("source")
+        assert item["source_label"], "每条都要有可直接显示的来源文案"
+
+    # 未启用模型时不得声称是模型生成——那是在夸大自动化程度
+    assert body["generated_by"] == "定稿内容"
+    assert all(i["source"] == "curated" for i in body["items"])

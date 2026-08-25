@@ -538,7 +538,12 @@ def roi_estimate(
 
 
 def insight_propose(
-    ctx: ToolContext, *, statement: str, basis: str, verification_suggestion: str
+    ctx: ToolContext,
+    *,
+    statement: str,
+    basis: str,
+    verification_suggestion: str,
+    source: str = "curated",
 ) -> ToolResult:
     """Q8 专用：低证据高价值洞察，强制标注为专家判断且不得含金额（§7、§11.6）。"""
     if contains_money(statement):
@@ -556,6 +561,7 @@ def insight_propose(
         statement=statement,
         basis=basis,
         verification_suggestion=verification_suggestion,
+        source=source if source in ("curated", "llm", "fallback") else "curated",
     )
     return ToolResult.success(
         {"insight": insight.model_dump(mode="json")},

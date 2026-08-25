@@ -269,6 +269,10 @@ class Insight(BaseModel):
     basis: str
     verification_suggestion: str
     label: str = "此为经验判断，无数据支撑"
+    # 这一条是顾问定稿的，还是模型现场生成的？没有数据支撑的判断，
+    # 来源直接决定读者该给多少信任。默认 curated：不能把定稿内容
+    # 说成模型产出，那是在夸大自动化程度。
+    source: Literal["curated", "llm", "fallback"] = "curated"
 
 
 class Feedback(BaseModel):

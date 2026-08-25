@@ -242,10 +242,23 @@ def build_evidence(r: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# 来源标签与反评审页保持同一套措辞：同样是"无数据支撑"的内容，
+# 顾问定稿与模型现场生成该给的信任完全不同，必须让读者看得见。
+_SOURCE_LABEL = {
+    "llm": "模型现场生成",
+    "fallback": "模型不可用，回退为定稿内容",
+    "curated": "定稿内容",
+}
+
+
 def build_insights(r: dict[str, Any]) -> dict[str, Any]:
+    sources = {i.get("source", "curated") for i in r["insights"]}
     return {
         "title": "基于经验的判断（无数据支撑）",
         "notice": "本区为顾问经验判断，无数据支撑，且按设计不含任何金额或回本周期。",
+        "generated_by": _SOURCE_LABEL["llm"] if "llm" in sources
+        else _SOURCE_LABEL["fallback"] if "fallback" in sources
+        else _SOURCE_LABEL["curated"],
         "items": [
             {
                 "insight_id": i["insight_id"],
@@ -253,6 +266,8 @@ def build_insights(r: dict[str, Any]) -> dict[str, Any]:
                 "basis": i["basis"],
                 "verification_suggestion": i["verification_suggestion"],
                 "label": i["label"],
+                "source": i.get("source", "curated"),
+                "source_label": _SOURCE_LABEL.get(i.get("source", "curated"), "定稿内容"),
             }
             for i in r["insights"]
         ],
