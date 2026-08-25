@@ -10,6 +10,8 @@ dependencies = [
   # httpx[socks]：环境里存在 SOCKS 代理时必需，否则请求在传输层就失败
   "httpx[socks]==0.28.1",
   "socksio==1.0.0",
+  # 材料上传走 multipart，FastAPI 需要此依赖
+  "python-multipart==0.0.20",
 ]
 
 [project.optional-dependencies]
