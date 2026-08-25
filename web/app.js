@@ -1802,7 +1802,18 @@ function wire() {
       e.stopPropagation();
       const slug = el.dataset.del;
       const c = state.clients.find((x) => x.slug === slug);
-      if (!window.confirm(`删除客户「${c ? c.name : slug}」？\n\n该客户的材料、证据台账与报告会一并删除，且不可恢复。`)) return;
+      const ok = await confirmDanger({
+        title: "删除客户",
+        target: c ? c.name : slug,
+        willDelete: [
+          "已上传的全部材料（" + (c ? c.material_count : 0) + " 份）",
+          "证据台账与全部诊断结论",
+          "已记录的改造前基线与复测数据",
+          "该客户的连接器绑定与凭据",
+        ],
+        confirmText: "确认删除该客户",
+      });
+      if (!ok) return;
       try {
         await send("/api/clients/" + encodeURIComponent(slug), { method: "DELETE" });
         if (state.slug === slug) { state.slug = null; state.client = null; }
@@ -2258,13 +2269,63 @@ function openModal(title) {
   modal.hidden = false;
 }
 
+// 弹窗关闭时要通知等待方（确认框用它来回一个"取消"）。
+// 没有这个钩子，遮罩点击与全局 Esc 关掉弹窗后，await 会永远挂着。
+let modalOnClose = null;
+
 function closeModal() {
   if (modal.hidden) return;
   modal.hidden = true;
   modalBody.innerHTML = "";
+  const cb = modalOnClose;
+  modalOnClose = null;
   const back = modalReturnFocus;
   modalReturnFocus = null;
   if (back && document.body.contains(back)) back.focus();
+  if (cb) cb();
+}
+
+/** 不可逆操作的确认框，取代原生 confirm()。
+ *
+ * 原生 confirm 有三个问题：样式不可控、说不清"到底会删掉什么"、
+ * 而且默认按钮是确定——不可逆操作最忌讳顺手回车。
+ * 这里逐条列出会被删除的内容，默认焦点给「取消」，危险动作用 danger 样式。
+ */
+function confirmDanger({ title, target, willDelete, confirmText = "确认删除" }) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      resolve(ok);
+    };
+
+    modalBody.innerHTML = `
+      <div class="danger-box">
+        <p class="danger-lead">即将删除 <b>${esc(target)}</b>，此操作<b>不可恢复</b>。</p>
+        <p class="danger-sub">以下内容会一并删除：</p>
+        <ul class="danger-list">
+          ${willDelete.map((x) => `<li>${esc(x)}</li>`).join("")}
+        </ul>
+      </div>
+      <div class="modal-acts">
+        <button class="btn btn-ghost" id="dgCancel">取消</button>
+        <button class="btn btn-danger" id="dgOk">${esc(confirmText)}</button>
+      </div>`;
+
+    // 关闭途径有三条（取消键、遮罩、Esc），都必须回一个"取消"
+    modalOnClose = () => finish(false);
+    openModal(title);
+
+    // 默认焦点给「取消」：不可逆操作不该让回车直接生效
+    document.getElementById("dgCancel").focus();
+    document.getElementById("dgCancel").addEventListener("click", () => closeModal());
+    document.getElementById("dgOk").addEventListener("click", () => {
+      finish(true);
+      modalOnClose = null;   // 已经答应了，别再回一次 false
+      closeModal();
+    });
+  });
 }
 
 modal.addEventListener("click", (e) => { if (e.target.dataset.close !== undefined) closeModal(); });

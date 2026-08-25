@@ -313,3 +313,55 @@ def test_evidence_grade_colors_meet_wcag_aa():
     for fg, bg in (("ga", "ga-bg"), ("gb", "gb-bg"), ("gc", "gc-bg")):
         r = _contrast(_token(fg), _token(bg))
         assert r >= 4.5, f"--{fg} 在 --{bg} 上只有 {r:.2f}:1"
+
+
+# ---------------------------------------------------------------------------
+# 不可逆操作的确认：原生 confirm 说不清后果，且默认按钮是「确定」
+# ---------------------------------------------------------------------------
+def test_no_native_confirm_for_destructive_actions():
+    """原生 confirm 不该再出现在代码里。
+
+    它有三个问题：样式不可控、说不清「到底会删掉什么」、
+    而且默认按钮是确定——不可逆操作最忌讳顺手回车。
+    """
+    assert "window.confirm" not in APP_JS, (
+        "删除类操作不得用原生 confirm，应走 confirmDanger()"
+    )
+    assert "confirmDanger" in APP_JS, "缺少应用内的危险操作确认框"
+
+
+def test_danger_confirm_lists_consequences_and_defaults_to_cancel():
+    """确认框必须列出后果，且默认焦点在取消。"""
+    m = re.search(r"function confirmDanger\(\{.*?\n\}", APP_JS, re.S)
+    assert m, "找不到 confirmDanger 定义"
+    body = m.group(0)
+
+    assert "willDelete" in body, "必须逐条列出会被删除的内容"
+    # 默认焦点给取消：不可逆操作不该让回车直接生效
+    assert re.search(r'getElementById\("dgCancel"\)\.focus\(\)', body), (
+        "默认焦点必须在取消按钮上"
+    )
+    # 三条关闭途径（取消键 / 遮罩 / Esc）都要回一个"取消"
+    assert "modalOnClose" in body, (
+        "遮罩点击与 Esc 也要 resolve，否则 await 会永远挂着"
+    )
+
+
+def test_delete_client_spells_out_what_is_lost():
+    """删客户会连带删掉材料、台账、基线、凭据——必须写清楚，不能只说「确定吗」。"""
+    m = re.search(r"confirmDanger\(\{(.*?)\}\);", APP_JS, re.S)
+    assert m, "找不到删除客户的确认调用"
+    call = m.group(1)
+    for kw in ("材料", "台账", "基线", "凭据"):
+        assert kw in call, f"删除确认没有说明「{kw}」会被删除"
+
+
+def test_danger_button_keeps_white_text_readable():
+    """危险按钮是实心红底白字，底色必须够深。"""
+    m = re.search(r"\.btn-danger\s*\{([^}]*)\}", STYLES)
+    assert m, "缺少 .btn-danger 样式"
+    assert "var(--danger-fg)" in m.group(1), (
+        "实心危险按钮的底色应用 --danger-fg；用 --danger 时白字只有 3.53:1"
+    )
+    r = _contrast(_token("n0"), _token("danger-fg"))
+    assert r >= 4.5, f"危险按钮白字只有 {r:.2f}:1"
