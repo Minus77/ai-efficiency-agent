@@ -191,3 +191,39 @@ def test_unknown_client_is_rejected(tmp_path):
     r = capture_baseline(root=tmp_path, slug="nope", card_id="s-01",
                         metric="该环节处理时长", value=1.0, sample_size=5, source="x")
     assert r["ok"] is False
+
+
+# ---------------------------- 汇总必须自带对比所需字段 ----------------------------
+def test_effect_summary_measurements_carry_baseline_value(client):
+    """前端要画"基线 vs 后测"，汇总里必须直接带上基线值。
+
+    只存 baseline_id 会让渲染层要么再查一次、要么渲染成 0——
+    后者是静默错误：表上显示"基线 0"，看起来像改善了 100%。
+    """
+    from aiea.measure import effect_summary
+
+    root, slug = client
+    capture_baseline(root=root, slug=slug, card_id="s-01", metric="该环节处理时长",
+                     value=30.0, sample_size=40, source="基线")
+    measure_effect(root=root, slug=slug, card_id="s-01", metric="该环节处理时长",
+                   value=18.0, sample_size=44, source="后测")
+
+    m = effect_summary(root=root, slug=slug)["measurements"][0]
+    assert m["baseline_value"] == 30.0
+    assert m["measured_value"] == 18.0
+    assert m["baseline_id"]
+
+
+def test_effect_summary_survives_missing_baseline_reference(client):
+    """基线文件被清空等异常情况下，不能崩，也不能把缺失渲染成 0。"""
+    from aiea.measure import effect_summary
+
+    root, slug = client
+    capture_baseline(root=root, slug=slug, card_id="s-02", metric="该环节处理时长",
+                     value=20.0, sample_size=30, source="基线")
+    measure_effect(root=root, slug=slug, card_id="s-02", metric="该环节处理时长",
+                   value=15.0, sample_size=30, source="后测")
+    (root / slug / "baselines.json").write_text("[]", encoding="utf-8")
+
+    m = effect_summary(root=root, slug=slug)["measurements"][0]
+    assert m["baseline_value"] is None, "查不到基线应为 None，不得退化成 0"

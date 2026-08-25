@@ -334,9 +334,26 @@ def effect_summary(*, root: Path | str | None = None, slug: str) -> dict[str, An
     improved = [m for m in measurements if m.get("direction") == "改善"]
     regressed = [m for m in measurements if m.get("direction") == "退步"]
 
+    # 汇总里直接带上基线值与后测值：渲染层只存 baseline_id 会被迫再查一次，
+    # 查不到时容易退化成 0——那是静默错误（表上"基线 0"看起来像改善了 100%）。
+    # 查不到就明确给 None，让渲染层显示"—"而不是编一个数。
+    by_id = {b["baseline_id"]: b for b in baselines}
+    enriched: list[dict[str, Any]] = []
+    for m in measurements:
+        base = by_id.get(m.get("baseline_id", ""))
+        measured_block = m.get("measured") or {}
+        enriched.append({
+            **m,
+            "baseline_value": base["value"] if base else None,
+            "baseline_sample_size": base["sample_size"] if base else None,
+            "baseline_source": base["source"] if base else "",
+            "measured_value": measured_block.get("value"),
+            "measured_sample_size": measured_block.get("sample_size"),
+        })
+
     return {
         "baselines": list(by_card.values()),
-        "measurements": measurements,
+        "measurements": enriched,
         "pending": [
             {"card_id": v["card_id"], "metric": v["metric"], "baseline": v["value"]}
             for k, v in by_card.items()

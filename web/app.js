@@ -799,9 +799,237 @@ function viewNoClient() {
     </div>`;
 }
 
+/* ============================ 系统连接器 ============================ */
+const GRADE_HINT = {
+  A: "可达 A 级：有单条记录 + 时间戳，能算清频次与耗时",
+  B: "上限 B 级：有明细但无时间戳，ROI 只能给区间",
+  C: "上限 C 级：只有汇总，仅用于定位痛点，不得用于量化",
+};
+
+async function viewConnectors() {
+  if (!state.slug) return viewNoClient();
+
+  const [catalog, bound] = await Promise.all([
+    get("/api/connectors"),
+    get("/api/clients/" + encodeURIComponent(state.slug) + "/connectors"),
+  ]);
+  const boundMap = new Map(bound.items.map((b) => [b.key, b]));
+
+  const card = (spec) => {
+    const b = boundMap.get(spec.key);
+    const g = String(spec.max_evidence_grade || "C");
+    return `
+    <div class="conn-card ${b ? "is-bound" : ""}">
+      <div class="conn-h">
+        <div>
+          <h3>${esc(spec.name)}</h3>
+          <p>${esc(spec.category)}　·　${esc(spec.description || "")}</p>
+        </div>
+        <span class="bdg bdg-${g.toLowerCase()}">${esc(g)} 级</span>
+      </div>
+
+      <p class="hint hint-info">${esc(GRADE_HINT[g] || "")}</p>
+
+      <div class="conn-rows">
+        <div class="conn-row">
+          <span class="conn-k">能算的指标</span>
+          <span class="conn-v">${(spec.metrics || []).map(esc).join("、")}</span>
+        </div>
+        <div class="conn-row">
+          <span class="conn-k">只读范围</span>
+          <span class="conn-v mono">${(spec.scopes || []).map(esc).join("  ")}</span>
+        </div>
+        <div class="conn-row">
+          <span class="conn-k">拿不到什么</span>
+          <span class="conn-v">${esc(spec.known_limits)}</span>
+        </div>
+      </div>
+
+      ${b ? `
+        <div class="conn-state">
+          <span class="bdg bdg-ok">已连接</span>
+          <span class="conn-sync">${b.last_sync_at
+            ? "上次同步 " + esc(b.last_sync_at) + "，拉取 " + b.last_row_count + " 条"
+            : "尚未同步"}</span>
+        </div>
+        <div class="conn-actions">
+          <button class="btn btn-sm btn-primary" data-sync="${esc(spec.key)}">同步数据</button>
+          <button class="btn btn-sm btn-ghost" data-bind="${esc(spec.key)}">更新凭据</button>
+        </div>`
+      : `<div class="conn-actions">
+          <button class="btn btn-sm btn-primary" data-bind="${esc(spec.key)}">连接</button>
+         </div>`}
+    </div>`;
+  };
+
+  return `
+    ${pageHead("系统连接器", "L0 手工导入与 L1 只读 API 双轨并行，不是二选一。L1 拿到的客观计数还会用来校验客户的自述口径")}
+
+    <div class="banner">
+      <svg viewBox="0 0 16 16" class="banner-ico" aria-hidden="true"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm.9 10.5H7.1v-1.6h1.8zm0-2.9H7.1V4.2h1.8z"/></svg>
+      <div>
+        <p class="banner-t">全部连接器只读，无一例外</p>
+        <p class="banner-b">诊断产出是报告，没有任何业务理由写客户系统。放弃写权限一次性消掉工具滥用、数据外泄、越权提升的绝大部分暴露面。写操作只落本地工作区。</p>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-h">
+        <h3>可用连接器</h3>
+        <p>已连接 ${bound.items.length} / ${catalog.items.length} 个。等级是诚实声明的能力边界，不是营销话术</p>
+      </div>
+      <div class="conn-grid">${catalog.items.map(card).join("")}</div>
+    </div>
+
+    <div class="sec">
+      <div class="card">
+        <p class="hint">连接后每次同步都会把拉到的数据落成一份材料，与手工上传的导出并列进入证据台账。
+        同一活动若 L1 与客户自述偏差超过 30%，台账会标注冲突并转人工判断——不取均值掩盖分歧。</p>
+      </div>
+    </div>`;
+}
+
+/* ============================ 改造效果 ============================ */
+async function viewEffect() {
+  if (!state.slug) return viewNoClient();
+
+  const d = await get("/api/clients/" + encodeURIComponent(state.slug) + "/effect");
+  let cards = [];
+  try {
+    const sc = await get(url("scenarios"));
+    cards = sc.parents.flatMap((p) => p.children);
+  } catch (e) {
+    cards = [];
+  }
+
+  const dirBadge = (dir) => {
+    const cls = dir === "改善" ? "bdg-ok" : dir === "退步" ? "bdg-danger" : "bdg-n";
+    return `<span class="bdg ${cls}">${esc(dir)}</span>`;
+  };
+
+  // 缺失一律显示 DASH：把查不到的基线渲染成 0 会让"基线 0"看起来像改善了 100%
+  const cell = (v, unit = "") => (v == null ? DASH : num(v, 1) + unit);
+  const measured = d.measurements.map((m) => `
+    <tr>
+      <td class="nm">${esc(m.card_id)}<span class="sub">${esc(m.metric)}</span></td>
+      <td class="r">${cell(m.baseline_value)}<span class="sub">${m.baseline_sample_size != null ? "样本 " + m.baseline_sample_size : ""}</span></td>
+      <td class="r">${cell(m.measured_value)}<span class="sub">${m.measured_sample_size != null ? "样本 " + m.measured_sample_size : ""}</span></td>
+      <td class="r">${cell(m.improvement_pct, "%")}</td>
+      <td>${dirBadge(m.direction)}${m.low_confidence ? ` <span class="bdg bdg-warn">低置信</span>` : ""}</td>
+    </tr>`).join("");
+
+  return `
+    ${pageHead("改造效果", "只用与场景强直接关联的过程指标，且必须有改造前基线——没有基线的『改善』无法证明是改造带来的")}
+
+    <div class="stats">
+      <div class="stat">
+        <p class="stat-k">已记基线</p>
+        <p class="stat-v">${d.baselines.length}<small>项</small></p>
+        <p class="stat-n">基线不可变，重复记录产生新版本并保留前版</p>
+      </div>
+      <div class="stat">
+        <p class="stat-k">已复测</p>
+        <p class="stat-v">${d.measurements.length}<small>项</small></p>
+        <p class="stat-n">改善 ${d.improved_count} · 退步 ${d.regressed_count}</p>
+      </div>
+      <div class="stat">
+        <p class="stat-k">待复测</p>
+        <p class="stat-v">${d.pending.length}<small>项</small></p>
+        <p class="stat-n">已有基线但还没做改造后测量</p>
+      </div>
+    </div>
+
+    ${d.measurements.length ? `
+      <div class="sec">
+        <div class="sec-h"><h3>基线 vs 改造后</h3><p>方向按指标语义判定：处理时长降低是改善，处理单量升高才是改善</p></div>
+        <div class="tbl"><div class="tbl-scroll"><table>
+          <thead><tr>
+            <th>场景 / 指标</th><th style="text-align:right">改造前基线</th>
+            <th style="text-align:right">改造后</th><th style="text-align:right">变化</th><th>结论</th>
+          </tr></thead>
+          <tbody>${measured}</tbody>
+        </table></div></div>
+      </div>` : `
+      <div class="sec">
+        <div class="card">
+          <div class="empty">
+            <svg viewBox="0 0 24 24" class="empty-ico" aria-hidden="true"><path d="M3 20h18v2H3zM6 12h3v7H6zM11 7h3v12h-3zM16 15h3v4h-3z"/></svg>
+            <h3>还没有可对比的效果数据</h3>
+            <p>衡量效果需要两步：改造前记一次基线，改造后复测同一指标。
+               缺了基线这一步，任何数字都只能说明"现在是多少"，证明不了是改造带来的变化。</p>
+          </div>
+        </div>
+      </div>`}
+
+    ${d.pending.length ? `
+      <div class="sec">
+        <div class="sec-h"><h3>待复测</h3><p>这些环节已有基线，改造上线后回来测一次即可出结论</p></div>
+        <div class="mat-list">
+          ${d.pending.map((p) => `
+            <div class="mat">
+              <span class="mat-ico">基线</span>
+              <div class="mat-body">
+                <p class="mat-name">${esc(p.card_id)} · ${esc(p.metric)}</p>
+                <p class="mat-meta">改造前基线：${num(p.baseline, 1)}</p>
+              </div>
+            </div>`).join("")}
+        </div>
+      </div>` : ""}
+
+    <div class="sec">
+      <div class="sec-h"><h3>记录数据</h3><p>${esc(d.rule)}</p></div>
+      <div class="card">
+        <form class="form" id="metricForm">
+          <div class="form-row">
+            <div>
+              <label for="mfKind">这是哪一步</label>
+              <select id="mfKind" class="inp">
+                <option value="baseline">改造前基线</option>
+                <option value="measure">改造后复测</option>
+              </select>
+            </div>
+            <div>
+              <label for="mfCard">场景</label>
+              <select id="mfCard" class="inp">
+                ${cards.length
+                  ? cards.map((c) => `<option value="${esc(c.card_id)}">${esc(c.card_id)} · ${esc(c.name)}</option>`).join("")
+                  : `<option value="s-01">s-01</option>`}
+              </select>
+            </div>
+            <div>
+              <label for="mfMetric">指标</label>
+              <select id="mfMetric" class="inp">
+                ${(d.allowed_metrics || []).map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join("")}
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div>
+              <label for="mfValue">数值<em>*</em></label>
+              <input id="mfValue" class="inp" type="number" step="0.01" placeholder="如：30" required />
+            </div>
+            <div>
+              <label for="mfSample">样本量</label>
+              <input id="mfSample" class="inp" type="number" min="1" placeholder="如：40" />
+              <p class="hint-inline">低于 20 会标注低置信</p>
+            </div>
+            <div>
+              <label for="mfSource">数据来源<em>*</em></label>
+              <input id="mfSource" class="inp" placeholder="如：工单只读 API（改造前）" required />
+            </div>
+          </div>
+          <button class="btn btn-primary" type="submit">提交</button>
+          <p class="msg" id="mfMsg"></p>
+        </form>
+        <p class="note">不采信营收、利润率等经营结果指标：波动原因太多，拿它校准会训出错误关联。</p>
+      </div>
+    </div>`;
+}
+
 /* ============================ 路由与交互 ============================ */
 const VIEWS = {
   clients: viewClients, intake: viewIntake,
+  connectors: viewConnectors, effect: viewEffect,
   overview: viewOverview, scenarios: viewScenarios, matrix: viewMatrix,
   roi: viewRoi, roadmap: viewRoadmap, evidence: viewEvidence,
   review: viewReview, insights: viewInsights, observability: viewObservability,
@@ -936,7 +1164,131 @@ function wire() {
   );
 
   wireIntake();
+  wireConnectors();
+  wireEffect();
   wireFeedback();
+}
+
+function wireConnectors() {
+  // 同步：拉取 → 落成材料 → 刷新页面
+  stage.querySelectorAll("[data-sync]").forEach((el) =>
+    el.addEventListener("click", async () => {
+      const key = el.dataset.sync;
+      const original = el.textContent;
+      el.disabled = true;
+      el.textContent = "同步中\u2026";
+      try {
+        const r = await send(
+          "/api/clients/" + encodeURIComponent(state.slug) + "/connectors/" + encodeURIComponent(key) + "/sync"
+        );
+        clearCache();
+        await reloadClients();
+        toast(
+          `已从${r.source_name}拉取 ${r.row_count} 条记录（${r.evidence_grade} 级证据）` +
+            (r.injection_suspected ? "，其中检出指令样式文本并已降级为纯数据" : ""),
+          "ok"
+        );
+        await go("connectors");
+      } catch (err) {
+        toast(String(err.message), "err");
+        el.disabled = false;
+        el.textContent = original;
+      }
+    })
+  );
+
+  // 绑定凭据
+  stage.querySelectorAll("[data-bind]").forEach((el) =>
+    el.addEventListener("click", () => {
+      const key = el.dataset.bind;
+      modalBody.innerHTML = `
+        <form class="form" id="bindForm">
+          <p class="note" style="margin:0">
+            只需要<strong>只读</strong>权限。填错或过期不会影响客户系统——本工具没有任何写入通道。
+          </p>
+          <div>
+            <label for="bkId">凭据标识 / Key ID</label>
+            <input id="bkId" class="inp" placeholder="如：readonly-token-1" />
+          </div>
+          <div>
+            <label for="bkSecret">只读密钥</label>
+            <input id="bkSecret" class="inp" type="password" placeholder="粘贴只读 Token" />
+            <p class="hint-inline">密钥单独存放，不进接口响应、不进日志、不进上下文</p>
+          </div>
+          <button class="btn btn-primary" type="submit">保存并连接</button>
+          <p class="msg" id="bkMsg"></p>
+        </form>`;
+      document.getElementById("modalTitle").textContent = "连接：" + key;
+      modal.hidden = false;
+      document.getElementById("bkId").focus();
+
+      document.getElementById("bindForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const msg = document.getElementById("bkMsg");
+        msg.className = "msg";
+        msg.textContent = "保存中\u2026";
+        try {
+          await send("/api/clients/" + encodeURIComponent(state.slug) + "/connectors", {
+            json: {
+              key,
+              key_id: document.getElementById("bkId").value.trim(),
+              secret: document.getElementById("bkSecret").value,
+            },
+          });
+          closeModal();
+          clearCache();
+          toast("已连接，可以点「同步数据」拉取了", "ok");
+          await go("connectors");
+        } catch (err) {
+          msg.className = "msg msg-err";
+          msg.textContent = String(err.message);
+        }
+      });
+    })
+  );
+}
+
+function wireEffect() {
+  const f = document.getElementById("metricForm");
+  if (!f) return;
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const msg = document.getElementById("mfMsg");
+    const kind = document.getElementById("mfKind").value;
+    const sample = document.getElementById("mfSample").value;
+    const payload = {
+      card_id: document.getElementById("mfCard").value,
+      metric: document.getElementById("mfMetric").value,
+      value: Number(document.getElementById("mfValue").value),
+      sample_size: sample ? Number(sample) : null,
+      source: document.getElementById("mfSource").value.trim(),
+    };
+    if (!payload.source) {
+      msg.className = "msg msg-err";
+      msg.textContent = "必须写明数据来源，否则日后无法复议这个数字。";
+      return;
+    }
+    msg.className = "msg";
+    msg.textContent = "提交中\u2026";
+    const path = kind === "baseline" ? "/baselines" : "/measurements";
+    try {
+      const r = await send("/api/clients/" + encodeURIComponent(state.slug) + path, { json: payload });
+      clearCache();
+      if (kind === "baseline") {
+        toast(`已记录基线（第 ${r.version} 版）。改造上线后回来复测同一指标即可出结论。`, "ok");
+      } else {
+        toast(
+          `${r.direction}：${r.improvement_pct != null ? r.improvement_pct + "%" : "无法量化"}` +
+            (r.low_confidence ? "（样本偏小，置信度低）" : ""),
+          r.direction === "退步" ? "err" : "ok"
+        );
+      }
+      await go("effect");
+    } catch (err) {
+      msg.className = "msg msg-err";
+      msg.textContent = String(err.message);
+    }
+  });
 }
 
 function wireIntake() {
