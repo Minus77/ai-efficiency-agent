@@ -86,11 +86,30 @@ class ConnectorSpec:
     auth_hint: str = "只读 API Token 或 OAuth read scope"
     description: str = ""
 
+    # -- 厂商模板字段 --------------------------------------------------------
+    # 顾问听到的是"我们用钉钉"，不是"我们用企业 IM"。vendor 为空表示这是
+    # 一个抽象类别模板（通用兜底），非空则是具体产品。
+    vendor: str = ""
+    product: str = ""
+    docs_url: str = ""
+    setup_steps: list[str] = field(default_factory=list)
+    # verified=False 表示能力声明尚未逐条核对官方文档。
+    # 这个字段存在的理由：编造 scope 名或夸大 API 能力，会让顾问按错误信息
+    # 去向客户 IT 申请权限，白跑一趟。宁可标"待核对"也不假装确定。
+    verified: bool = False
+    verify_note: str = ""
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "key": self.key,
             "name": self.name,
             "category": self.category,
+            "vendor": self.vendor,
+            "product": self.product,
+            "docs_url": self.docs_url,
+            "setup_steps": list(self.setup_steps),
+            "verified": self.verified,
+            "verify_note": self.verify_note,
             "max_evidence_grade": self.max_evidence_grade.value,
             "provides_timestamps": self.provides_timestamps,
             "metrics": list(self.metrics),

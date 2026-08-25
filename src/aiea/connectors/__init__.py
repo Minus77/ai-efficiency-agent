@@ -20,3 +20,4 @@ from .base import (  # noqa: F401
 )
 
 from . import presets  # noqa: E402,F401  导入即注册预置连接器
+from . import vendors  # noqa: E402,F401  导入即注册厂商模板
