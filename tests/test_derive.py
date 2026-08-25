@@ -222,3 +222,46 @@ def test_per_value_frequency_is_exact_not_evenly_split():
     by_val = {c["source_value"]: c for c in out["cards"] if c["source_value"]}
     assert "24" in by_val["送货时间"]["frequency_desc"]
     assert "12" in by_val["开票问题"]["frequency_desc"]
+
+
+# ---------------------------- 静默丢弃与短样本外推 ----------------------------
+UNEVEN3 = "\n".join(
+    ["ticket_no,created_at,first_response_at,category"]
+    + [f"WD{i},2026-03-12T09:{(i * 2) % 55:02d}:00,2026-03-12T09:{(i * 2 + 4) % 58:02d}:00,送货时间" for i in range(24)]
+    + [f"WD{100 + i},2026-03-12T10:{(i * 2) % 55:02d}:00,2026-03-12T10:{(i * 2 + 4) % 58:02d}:00,开票问题" for i in range(12)]
+    + [f"WD{200 + i},2026-03-12T11:{(i * 2) % 55:02d}:00,2026-03-12T11:{(i * 2 + 4) % 58:02d}:00,退换货" for i in range(6)]
+)
+
+
+def test_dropped_low_volume_activities_are_reported_not_silently_ignored():
+    """低于阈值的活动被丢弃是合理的，但**必须说出来**——静默省略就是漏判（§19.1）。"""
+    out = derive_scenarios(_parsed(("tickets.csv", UNEVEN3)))
+    values = {c["source_value"] for c in out["cards"]}
+    assert "退换货" not in values, "6 条低于阈值，不应单独成场景"
+    dropped = out["dropped"]
+    assert dropped, "被丢弃的活动必须登记，否则客户不知道有东西被省了"
+    hit = next((d for d in dropped if d["value"] == "退换货"), None)
+    assert hit is not None
+    assert hit["record_count"] == 6
+    assert "阈值" in hit["reason"] or "条" in hit["reason"]
+
+
+def test_short_observation_window_extrapolation_is_flagged():
+    """单日样本外推到月度会放大偏差，必须写进假设而不是悄悄算。"""
+    out = derive_scenarios(_parsed(("tickets.csv", UNEVEN3)))
+    top = out["cards"][0]
+    assert "外推" in top["minutes_note"] or "覆盖" in top["minutes_note"]
+    assert "1 天" in top["minutes_note"] or "偏差" in top["minutes_note"]
+
+
+def test_long_window_does_not_get_extrapolation_warning():
+    long_span = "\n".join(
+        ["ticket_no,created_at,first_response_at,category"]
+        + [
+            f"WD{i},2026-03-{1 + i % 20:02d}T09:{(i * 2) % 55:02d}:00,"
+            f"2026-03-{1 + i % 20:02d}T09:{(i * 2 + 4) % 58:02d}:00,送货时间"
+            for i in range(40)
+        ]
+    )
+    out = derive_scenarios(_parsed(("tickets.csv", long_span)))
+    assert "外推偏差" not in out["cards"][0]["minutes_note"]

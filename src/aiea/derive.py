@@ -139,9 +139,16 @@ def _minutes_from_pairs(material: ParsedMaterial) -> tuple[float | None, str]:
     return round(avg, 2), f"由 {cols[0]} 与 {cols[1]} 的间隔推算（{len(deltas)} 对样本）"
 
 
-def _cluster(materials: list[ParsedMaterial]) -> list[ActivityCluster]:
-    """把材料切成活动簇。优先按分类列的取值切分，否则整份材料算一簇。"""
+def _cluster(
+    materials: list[ParsedMaterial],
+) -> tuple[list[ActivityCluster], list[dict[str, Any]]]:
+    """把材料切成活动簇。优先按分类列的取值切分，否则整份材料算一簇。
+
+    第二个返回值是**被丢弃的活动**：样本太少不适合单独成场景是合理的判断，
+    但静默省略等于漏判（§19.1 三分类里的第一类）。因此必须登记并回报给客户。
+    """
     clusters: list[ActivityCluster] = []
+    dropped: list[dict[str, Any]] = []
 
     for m in materials:
         if m.kind != "csv" or m.row_count == 0:
@@ -170,6 +177,18 @@ def _cluster(materials: list[ParsedMaterial]) -> list[ActivityCluster]:
             ordered = sorted(best_counts.items(), key=lambda kv: -kv[1])[:MAX_SCENARIOS]
             for value, count in ordered:
                 if count < MIN_RECORDS_PER_SCENARIO:
+                    dropped.append(
+                        {
+                            "file": m.filename,
+                            "column": split_col,
+                            "value": value,
+                            "record_count": count,
+                            "reason": (
+                                f"仅 {count} 条记录，低于单独成场景的阈值"
+                                f"（{MIN_RECORDS_PER_SCENARIO} 条），样本不足以支撑量化"
+                            ),
+                        }
+                    )
                     continue
                 clusters.append(
                     ActivityCluster(
@@ -200,7 +219,20 @@ def _cluster(materials: list[ParsedMaterial]) -> list[ActivityCluster]:
             )
         )
 
-    return clusters[:MAX_SCENARIOS]
+    for extra in clusters[MAX_SCENARIOS:]:
+        dropped.append(
+            {
+                "file": extra.material.filename,
+                "column": extra.column,
+                "value": extra.value,
+                "record_count": extra.record_count,
+                "reason": (
+                    f"本次只深挖最痛的 {MAX_SCENARIOS} 个环节（父层只讲最痛 2–3 条的延伸），"
+                    "该环节优先级靠后，未做深度取证"
+                ),
+            }
+        )
+    return clusters[:MAX_SCENARIOS], dropped
 
 
 def _name_with_llm(clusters: list[ActivityCluster], llm: Any) -> tuple[dict[str, dict[str, str]], str]:
@@ -355,11 +387,11 @@ def derive_scenarios(
         )
         return {
             "cards": [], "parents": [], "evidence": [], "gaps": gaps,
-            "naming_source": "none",
+            "dropped": [], "naming_source": "none",
         }
 
     # ---- 活动簇 → 命名 ----
-    clusters = _cluster(csv_materials)
+    clusters, dropped = _cluster(csv_materials)
     naming_source = "fallback"
     named: dict[str, dict[str, str]] = {}
     if clusters and llm is not None:
@@ -406,6 +438,15 @@ def derive_scenarios(
             c.record_count * (WORKDAYS_PER_MONTH / min(span_days, 31)) if span_days else c.record_count
         )
         monthly_minutes = round(monthly_records * per_run, 1)
+
+        # 观测窗过短时外推会放大偏差（旺季/淡季、月初/月末都会失真）——必须写进假设
+        if span_days and span_days < 5:
+            factor = WORKDAYS_PER_MONTH / min(span_days, 31)
+            extrapolation = (
+                f"观测窗仅覆盖 {span_days} 天，按 ×{factor:.1f} 外推到月度；"
+                "外推偏差较大（旺淡季与月内分布都会失真），建议索取覆盖完整月份的导出以校正"
+            )
+            minutes_note = f"{minutes_note}；{extrapolation}" if minutes_note else extrapolation
 
         card_id = f"s-{idx:02d}"
         eid = ev_by_file.get(c.material.filename, "")
@@ -547,10 +588,23 @@ def derive_scenarios(
             }
         )
 
+    # 被丢弃的活动显式回报：客户有权知道有哪些环节被判为"样本不足"
+    for d in dropped:
+        gaps.append(
+            {
+                "material": f"{d['value'] or d['file']} 环节的更长时间范围导出",
+                "why_requested": "该环节在本次材料中样本不足，无法单独量化",
+                "status": f"已识别但未深挖——{d['reason']}",
+                "impact": "该环节未进入场景清单；若实际频次更高，请提供覆盖更长时间的导出",
+                "affected_cards": [],
+            }
+        )
+
     return {
         "cards": cards,
         "parents": parents,
         "evidence": evidence,
         "gaps": gaps,
+        "dropped": dropped,
         "naming_source": naming_source,
     }
