@@ -490,3 +490,24 @@ def test_server_prose_is_wired_to_autoterm():
     # 反过来：这些字段不该还留着裸 esc()
     for field in ("d.adjudication_order", "d.conflict_rule", "r.known_limit"):
         assert f"esc({field})" not in APP_JS, f"{field} 仍是裸 esc()，术语无法点开"
+
+
+def test_readme_term_count_matches_glossary():
+    """README 里写死的术语数必须与 glossary 实际条数一致。
+
+    本会话踩到过：新增 6 个术语后，README 四处仍写着「38 个术语」。
+    写死的数字必然漂移，而文档漂移没有任何自动信号——新人照 README
+    对不上界面，就会怀疑是不是自己看错了版本。
+    """
+    from aiea.glossary import GLOSSARY
+
+    readme = (WEB.parent / "README.md").read_text(encoding="utf-8")
+    actual = len(GLOSSARY)
+
+    # README 中所有形如「NN 个术语」「NN 个词」的写法都必须等于实际条数
+    claims = re.findall(r"(\d+)\s*个(?:术语|词)", readme)
+    assert claims, "README 应至少写明一次术语总数"
+    wrong = sorted({c for c in claims if int(c) != actual})
+    assert not wrong, (
+        f"README 写着 {wrong} 个术语，实际是 {actual} 个——文档与代码不一致"
+    )
