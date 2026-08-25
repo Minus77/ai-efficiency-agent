@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .agents import generate_counter_review, generate_insights
+from .config import default_workspace_root
 from .evidence import Claim, adjudicate, closure_rate, grade_of, judge_work_form
 from .guardrails import guardian_review, scan_attachment
 from .knowledge import KnowledgeBase, Library, playbook_propose
@@ -59,7 +60,7 @@ def _minutes_between(a: str, b: str) -> float:
 
 def run_seed_diagnosis(
     *,
-    root: Path | str = "workspace",
+    root: Path | str | None = None,
     client_dir: Path | None = None,
     llm: Any | None = None,
 ) -> dict[str, Any]:
@@ -68,6 +69,7 @@ def run_seed_diagnosis(
     llm=None 时 S5 的反评审与洞察使用本文件内的定稿内容（确定性、可离线复现）；
     传入 LLMClient 时改由 judge 档模型现场生成，并经 agents.py 的校验过滤。
     """
+    root = root if root is not None else default_workspace_root()
     materials_dir = client_dir or CLIENT_DIR
     if not (materials_dir / "tickets.csv").exists():
         write_all(materials_dir)

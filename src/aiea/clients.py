@@ -14,6 +14,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
 
+from .config import default_workspace_root
+
 # §17.2 规模范围：20–200 人。超范围不拒接，但标注"范围外，基准参考有限"且不计入自学习样本
 SCOPE_MIN, SCOPE_MAX = 20, 200
 
@@ -107,10 +109,10 @@ class ClientProfile:
 class ClientRegistry:
     """以工作区目录为唯一真相源，不引数据库——与 §5 的落盘原则一致。"""
 
-    root: Path | str = "workspace"
+    root: Path | str | None = None
 
     def __post_init__(self) -> None:
-        self.root = Path(self.root)
+        self.root = Path(self.root if self.root is not None else default_workspace_root())
         self.root.mkdir(parents=True, exist_ok=True)
 
     # -- 内部 ---------------------------------------------------------------

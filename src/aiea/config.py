@@ -91,3 +91,13 @@ class Settings:
 
 
 settings = Settings()
+
+
+def default_workspace_root() -> str:
+    """工作区根目录的**唯一**取值入口。
+
+    各处默认参数一律调用它，而不是各写一遍字符串 "workspace"——
+    硬写默认值会让 AIEA_WORKSPACE 静默失效：调用方以为自己指定了目录，
+    数据却落进了仓库。每次读环境变量而不缓存，测试才能用 monkeypatch 覆盖。
+    """
+    return os.getenv("AIEA_WORKSPACE", "workspace")

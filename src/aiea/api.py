@@ -24,6 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 from .clients import ClientRegistry, safe_slug
+from .config import default_workspace_root
 from .diagnose import DiagnosisNotReady, load_report, run_diagnosis
 from .intake import EVIDENCE_ROLES, list_materials, save_material
 from .knowledge import KnowledgeBase
@@ -264,12 +265,13 @@ VIEW_BUILDERS = {
 # ===========================================================================
 # 应用
 # ===========================================================================
-def create_app(*, root: Path | str = "workspace", use_llm: bool = False) -> FastAPI:
+def create_app(*, root: Path | str | None = None, use_llm: bool = False) -> FastAPI:
     """构建应用。
 
     use_llm=False（默认）：S5 反评审与洞察用确定性内容，完全离线、可复现。
     use_llm=True：改由 judge 档模型现场生成，需要 AIEA_API_KEY。
     """
+    root = root if root is not None else default_workspace_root()
     app = FastAPI(title="中小企业 AI 提效场景识别 Agent", version="2.0")
     registry = ClientRegistry(root=root)
 

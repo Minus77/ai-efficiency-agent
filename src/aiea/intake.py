@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .config import default_workspace_root
 from .evidence import probe_material_reachability
 from .guardrails import scan_attachment
 
@@ -269,11 +270,17 @@ EVIDENCE_ROLES = {
 
 
 def save_material(
-    *, root: Path | str, slug: str, filename: str, content: bytes, evidence_role: str = "R1"
+    *,
+    root: Path | str | None = None,
+    slug: str,
+    filename: str,
+    content: bytes,
+    evidence_role: str = "R1",
 ) -> dict[str, Any]:
     """落盘一份材料并登记元数据。不通过安全检查的一律不落盘。"""
     from .clients import safe_slug
 
+    root = root if root is not None else default_workspace_root()
     checked = safe_slug(slug)
     if checked is None:
         return {"accepted": False, "reason": "客户标识不合法", "filename": safe_filename(filename)}
@@ -315,9 +322,10 @@ def save_material(
     return record
 
 
-def list_materials(*, root: Path | str, slug: str) -> list[dict[str, Any]]:
+def list_materials(*, root: Path | str | None = None, slug: str) -> list[dict[str, Any]]:
     from .clients import safe_slug
 
+    root = root if root is not None else default_workspace_root()
     checked = safe_slug(slug)
     if checked is None:
         return []

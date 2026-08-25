@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .config import default_workspace_root
 from .guardrails import assert_readonly, redact_pii
 
 # 单工具返回 > 2K token 一律落盘，上下文只留路径（§5）
@@ -20,10 +21,10 @@ SPILL_THRESHOLD_CHARS = 6000
 @dataclass
 class Workspace:
     tenant: str
-    root: Path | str = "workspace"
+    root: Path | str | None = None
 
     def __post_init__(self) -> None:
-        self.root = Path(self.root)
+        self.root = Path(self.root if self.root is not None else default_workspace_root())
         for sub in ("task-cards", "evidence", "materials", "trace", "feedback"):
             (self.path / sub).mkdir(parents=True, exist_ok=True)
 

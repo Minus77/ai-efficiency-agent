@@ -16,6 +16,7 @@ from typing import Any
 
 from .agents import generate_counter_review, generate_insights
 from .clients import ClientRegistry, safe_slug
+from .config import default_workspace_root
 from .derive import derive_scenarios
 from .evidence import closure_rate
 from .feasibility import DIMENSIONS
@@ -101,9 +102,10 @@ def _impl_tier(card: dict[str, Any]) -> str:
 
 
 def run_diagnosis(
-    *, tenant: str, root: Path | str = "workspace", llm: Any | None = None
+    *, tenant: str, root: Path | str | None = None, llm: Any | None = None
 ) -> dict[str, Any]:
     """对指定客户跑一次完整诊断（S0–S5）并落盘。"""
+    root = root if root is not None else default_workspace_root()
     checked = safe_slug(tenant)
     if checked is None:
         raise DiagnosisNotReady("客户标识不合法")
@@ -511,8 +513,9 @@ def _render_findings(report: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def load_report(*, tenant: str, root: Path | str = "workspace") -> dict[str, Any] | None:
+def load_report(*, tenant: str, root: Path | str | None = None) -> dict[str, Any] | None:
     """读盘取已生成的报告。落盘即唯一真相源，服务重启不丢。"""
+    root = root if root is not None else default_workspace_root()
     checked = safe_slug(tenant)
     if checked is None:
         return None

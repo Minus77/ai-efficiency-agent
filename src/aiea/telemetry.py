@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
+from .config import default_workspace_root
 from .guardrails import redact_pii
 
 
@@ -36,12 +37,12 @@ class Tracer:
 
     session_id: str
     tenant: str
-    out_dir: Path | str = "workspace"
+    out_dir: Path | str | None = None
     records: list[dict[str, Any]] = field(default_factory=list)
     _costs: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        self.out_dir = Path(self.out_dir)
+        self.out_dir = Path(self.out_dir if self.out_dir is not None else default_workspace_root())
         self.out_dir.mkdir(parents=True, exist_ok=True)
 
     # -- span ---------------------------------------------------------------
