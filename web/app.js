@@ -116,6 +116,42 @@ function term(key, display) {
   return `<button class="term" data-term="${esc(key)}" aria-label="查看「${esc(t.label)}」的解释">${esc(label)}</button>`;
 }
 
+/* 服务端下发的成文段落里也带术语（关键假设、裁决规则、受理说明等），
+ * 那些字符串不经过 term() 包装，用户看到的是纯文本、点不开。
+ * autoTerm() 负责把它们自动接上解释入口。
+ *
+ * 三条纪律：
+ * 1. 先转义再注入。顺序颠倒就等于把用户材料里的内容当 HTML 执行了。
+ * 2. 长词优先。"连续作业"必须在"作业形态"之前匹配，否则会被切碎。
+ * 3. 每段只标第一次出现。同一段里同个词标三遍是噪音，反而更难读。
+ */
+let autoTermRe = null;
+
+function buildAutoTermRe() {
+  const keys = [...glossary.terms.keys()]
+    // 长度 1 的词误伤概率过高（会嵌在别的词里），排除掉。
+    // 两字词如"缺口""折现"恰恰是核心概念，保留，靠"长词优先 + 每段一次"控噪。
+    .filter((k) => k.length >= 2)
+    .sort((a, b) => b.length - a.length)
+    .map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  autoTermRe = keys.length ? new RegExp("(" + keys.join("|") + ")", "g") : null;
+}
+
+/** 转义纯文本，并把其中的术语替换成可点开的解释入口。 */
+function autoTerm(text) {
+  const safe = esc(text);
+  if (!glossary.loaded) return safe;
+  if (!autoTermRe) buildAutoTermRe();
+  if (!autoTermRe) return safe;
+
+  const used = new Set();
+  return safe.replace(autoTermRe, (m) => {
+    if (used.has(m)) return m;      // 每段只标第一次
+    used.add(m);
+    return term(m, m);
+  });
+}
+
 /** 等级徽标 + 可点开判定标准。徽标本身就是解释入口，不用另找地方。 */
 function gradeBadge(g, { scale = false, suffix = "" } = {}) {
   const grade = String(g || "C").toUpperCase();
@@ -410,7 +446,7 @@ async function viewOverview() {
 
     <div class="sec">
       <div class="sec-h"><h3>关键假设</h3><p>假设透明比数字精确更重要，任一项变化都会改变结论</p></div>
-      <div class="card"><ol class="assume">${d.assumptions.map((a) => `<li>${esc(a)}</li>`).join("")}</ol></div>
+      <div class="card"><ol class="assume">${d.assumptions.map((a) => `<li>${autoTerm(a)}</li>`).join("")}</ol></div>
     </div>
 
     <div class="sec">
@@ -422,7 +458,7 @@ async function viewOverview() {
           <div class="field"><dt>覆盖部门</dt><dd>${d.scope.departments.map(esc).join("、")}</dd></div>
           <div class="field"><dt>明确排除</dt><dd class="dim">${(d.scope.excluded || []).map(esc).join("、") || "无"}</dd></div>
         </div>
-        <p class="hint hint-info">${esc(d.admission_probe.explanation)}</p>
+        <p class="hint hint-info">${autoTerm(d.admission_probe.explanation)}</p>
       </div>
     </div>`;
 }
@@ -484,7 +520,7 @@ async function viewScenarios() {
         </div>
         ${p.children.map(item).join("")}
       </div>`).join("")}
-    <p class="note">${esc(d.render_gate.grey_reason)}</p>`;
+    <p class="note">${autoTerm(d.render_gate.grey_reason)}</p>`;
 }
 
 /* ============================ 03 优先级矩阵（真散点） ============================ */
@@ -557,12 +593,12 @@ async function viewMatrix() {
     <div class="sec" style="margin-top:16px">
       <div class="card">
         <div class="fields">
-          <div class="field"><dt>收益轴</dt><dd class="dim">${esc(d.axes.benefit)}</dd></div>
-          <div class="field"><dt>难度轴（${term("七维")}）</dt><dd class="dim">${esc(d.axes.difficulty)}</dd></div>
-          <div class="field"><dt>收益分界</dt><dd>${money(t.benefit)}<span class="dim"> · ${esc(t.benefit_basis)}</span></dd></div>
+          <div class="field"><dt>收益轴</dt><dd class="dim">${autoTerm(d.axes.benefit)}</dd></div>
+          <div class="field"><dt>难度轴（${term("七维")}）</dt><dd class="dim">${autoTerm(d.axes.difficulty)}</dd></div>
+          <div class="field"><dt>收益分界</dt><dd>${money(t.benefit)}<span class="dim"> · ${autoTerm(t.benefit_basis)}</span></dd></div>
           <div class="field"><dt>难度分界</dt><dd>${difficultyValue(t.difficulty)}<span class="dim"> · 高于此值算"难"</span></dd></div>
         </div>
-        <p class="hint hint-info">${esc(d.note)}</p>
+        <p class="hint hint-info">${autoTerm(d.note)}</p>
       </div>
     </div>`;
 }
@@ -641,7 +677,7 @@ async function viewRoi() {
     </div>
 
     <div class="sec">
-      <div class="sec-h"><h3>行业基准</h3><p>${esc(d.benchmarks.usage_rule)}</p></div>
+      <div class="sec-h"><h3>行业基准</h3><p>${autoTerm(d.benchmarks.usage_rule)}</p></div>
       <div class="card">
         ${[...d.benchmarks.service, ...d.benchmarks.reconcile].map((b) => `
           <p style="margin:0 0 10px;font-size:13px">${esc(b.text)}
@@ -734,8 +770,8 @@ async function viewEvidence() {
         <div class="field"><dt>${gradeBadge("B", { scale: true })}</dt><dd class="dim">${esc(d.grading_rule.B)}</dd></div>
         <div class="field"><dt>${gradeBadge("C", { scale: true })}</dt><dd class="dim">${esc(d.grading_rule.C)}</dd></div>
       </div>
-      <p class="hint"><b>裁决优先级</b>（左边优先于右边）：${esc(d.adjudication_order)}</p>
-      <p class="hint hint-warn">${esc(d.conflict_rule)}</p>
+      <p class="hint"><b>裁决优先级</b>（左边优先于右边）：${autoTerm(d.adjudication_order)}</p>
+      <p class="hint hint-warn">${autoTerm(d.conflict_rule)}</p>
     </div>`;
 }
 
@@ -754,7 +790,7 @@ async function viewReview() {
         <h3>针对 Top 场景的最强反驳</h3>
         <span class="bdg bdg-info">${esc(r.generated_by || "定稿内容")}</span>
       </div>
-      <p class="note" style="margin:0 0 10px">${esc(r.isolation)}</p>
+      <p class="note" style="margin:0 0 10px">${autoTerm(r.isolation)}</p>
       ${r.items.map((i) => `
         <div class="card">
           <div class="item-h">
@@ -766,7 +802,7 @@ async function viewReview() {
           <p style="margin:0 0 10px;font-size:13.5px;line-height:1.7">${esc(i.rebuttal)}</p>
           <p class="hint">处理：${esc(i.resolution)}</p>
         </div>`).join("")}
-      <p class="note">${esc(r.known_limit)}</p>
+      <p class="note">${autoTerm(r.known_limit)}</p>
     </div>
 
     <div class="sec">
@@ -790,7 +826,7 @@ async function viewReview() {
             ${i.affected_cards.map((c) => `<button class="chip-ref" data-card="${esc(c)}">${esc(c)}</button>`).join("")}
           </div>
         </div>`).join("")}
-      <p class="note">${esc(g.rule)}</p>
+      <p class="note">${autoTerm(g.rule)}</p>
     </div>`;
 }
 
@@ -1629,7 +1665,7 @@ async function viewEffect() {
       </div>` : ""}
 
     <div class="sec">
-      <div class="sec-h"><h3>记录数据</h3><p>${esc(d.rule)}</p></div>
+      <div class="sec-h"><h3>记录数据</h3><p>${autoTerm(d.rule)}</p></div>
       <div class="card">
         <form class="form" id="metricForm">
           <div class="form-row">

@@ -407,3 +407,86 @@ def test_stale_response_does_not_overwrite_current_view():
         f"render() 只有 {guards} 处新旧视图校验；成功与失败两条路径都要有，"
         "否则慢请求或慢失败都会覆盖当前页面"
     )
+
+
+# ---------------------------------------------------------------------------
+# 服务端成文段落的术语自动接入
+# ---------------------------------------------------------------------------
+def test_autoterm_escapes_before_injecting():
+    """先转义再注入。顺序颠倒就等于把客户材料里的内容当 HTML 执行。
+
+    这是安全属性，不只是样式问题：关键假设、裁决规则这些段落里含客户名与
+    文件名，都是外部输入。必须先 esc() 得到纯文本，再往里插术语按钮。
+    """
+    m = re.search(r"function autoTerm\(text\)\s*\{.*?\n\}", APP_JS, re.S)
+    assert m, "找不到 autoTerm()"
+    body = m.group(0)
+
+    # 起初这条断言写成"esc(text) 的位置早于 .replace() 的位置"，是个装饰品：
+    # 把 `const safe = text` 改坏之后，函数里别处仍有 esc(text)，位置检查照样通过。
+    # 真正要钉住的是**被替换的那个值本身是转义结果**，所以直接断言这两处绑定。
+    assert re.search(r"const safe = esc\(text\);", body), (
+        "被替换的值必须是 esc(text) 的结果；绑定成原始 text 就等于把标签当 HTML 执行"
+    )
+    assert re.search(r"return safe\.replace\(autoTermRe", body), (
+        "替换必须作用在已转义的 safe 上，不能作用在原始文本上"
+    )
+
+
+def test_autoterm_prefers_longer_terms():
+    """「连续作业」必须先于「作业形态」匹配，否则长词会被短词切碎。"""
+    m = re.search(r"function buildAutoTermRe\(\)\s*\{.*?\n\}", APP_JS, re.S)
+    assert m, "找不到 buildAutoTermRe()"
+    body = m.group(0)
+    assert re.search(r"sort\(\(a, b\) => b\.length - a\.length\)", body), (
+        "术语必须按长度降序排列，否则短词会先命中、把长词切碎"
+    )
+    # 单字词误伤概率过高
+    assert "length >= 2" in body, "应排除长度 1 的词，避免嵌在别的词里误标"
+
+
+def test_autoterm_marks_each_term_once_per_paragraph():
+    """同一段里同个词标三遍是噪音，反而更难读。"""
+    m = re.search(r"function autoTerm\(text\)\s*\{.*?\n\}", APP_JS, re.S)
+    body = m.group(0)
+    assert "used" in body and "Set" in body, "需要用集合记录已标过的词"
+
+
+def test_autoterm_degrades_when_glossary_missing():
+    """术语表拉不到时必须退回纯文本，不能连报告一起挂掉。"""
+    m = re.search(r"function autoTerm\(text\)\s*\{.*?\n\}", APP_JS, re.S)
+    body = m.group(0)
+    assert "glossary.loaded" in body, "必须检查术语表是否可用"
+    assert re.search(r"if \(!glossary\.loaded\) return safe", body), (
+        "术语表不可用时应直接返回已转义的纯文本"
+    )
+
+
+def test_server_prose_is_wired_to_autoterm():
+    """服务端下发的成文段落必须走 autoTerm，否则里面的术语点不开。
+
+    这些字段是"整段中文"，不是标签或数值，用户最需要在这里查词。
+    """
+    # 关键假设是逐条 map 出来的，写法是 `autoTerm(a)` 而不是 `autoTerm(d.assumptions…)`，
+    # 所以单独按渲染片段匹配，不能跟其他字段套同一个模式。
+    # 注意 `${` 里的 `$` 在正则中是行尾锚点，必须转义成 `\$\{`，
+    # 否则这条断言永远匹配不上（写错过一次）。
+    assert re.search(r"d\.assumptions\.map\(\(a\) => `<li>\$\{autoTerm\(a\)\}", APP_JS), (
+        "关键假设未接入 autoTerm，其中的折现/真碎片/补数表等术语点不开"
+    )
+
+    for field in (
+        "d.admission_probe.explanation",     # 受理探测说明
+        "d.render_gate.grey_reason",         # 标灰原因
+        "d.adjudication_order",              # 裁决优先级
+        "d.conflict_rule",                   # 冲突处理规则
+        "r.isolation",                       # 反评审隔离说明
+        "r.known_limit",                     # 已知局限
+        "g.rule",                            # 缺口规则
+    ):
+        pat = re.compile(r"autoTerm\(" + re.escape(field))
+        assert pat.search(APP_JS), f"{field} 未接入 autoTerm，其中的术语点不开"
+
+    # 反过来：这些字段不该还留着裸 esc()
+    for field in ("d.adjudication_order", "d.conflict_rule", "r.known_limit"):
+        assert f"esc({field})" not in APP_JS, f"{field} 仍是裸 esc()，术语无法点开"
