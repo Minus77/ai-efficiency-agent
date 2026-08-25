@@ -64,6 +64,17 @@
    [hidden] 一律强制 display:none，个别元素不必再各自声明。 */
 [hidden] { display: none !important; }
 
+/* 跳到主内容：平时移出视口，聚焦时才落下来。
+   不用 display:none —— 那样键盘也聚焦不到，等于没做。 */
+.skip {
+  position: fixed; top: 0; left: 50%; transform: translate(-50%, -120%);
+  z-index: 300; padding: 10px 18px;
+  background: var(--b500); color: #fff; font-size: 13px; font-weight: 500;
+  border-radius: 0 0 var(--r-lg) var(--r-lg); text-decoration: none;
+  transition: transform .16s var(--ease);
+}
+.skip:focus { transform: translate(-50%, 0); outline: 2px solid var(--n0); outline-offset: -4px; }
+
 html, body { height: 100%; }
 
 body {
@@ -188,7 +199,16 @@ body {
 /* ============================ 视图入场 ============================ */
 .view { animation: fade .28s var(--ease) both; }
 @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .view, .skeleton > * { animation: none !important; } }
+/* 尊重系统的"减弱动态效果"。逐个列举漏得快（本轮新增的浮层就漏过），
+   所以直接全局关掉动画与过渡，只保留必要的 transform 终态。 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 
 /* ============================ 页头 ============================ */
 .page-h { margin-bottom: 20px; }
@@ -380,11 +400,16 @@ body {
 
 /* ============================ 表格 ============================ */
 .tbl { background: var(--n0); border: 1px solid var(--n100); border-radius: var(--r-lg); overflow: hidden; }
-.tbl-scroll { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+/* 表头吸顶要成立，滚动容器必须是它自己：sticky 只相对最近的滚动祖先生效，
+   而 overflow-x:auto 已经把 .tbl-scroll 变成滚动容器了——此时 top:0 永远不触发。
+   所以给它一个高度上限，让宽表在容器内纵向滚动。短表撑不到上限，不受影响。 */
+.tbl-scroll { overflow: auto; max-height: calc(100vh - 240px); }
+/* collapse 下 sticky 表头的边框会丢，改用 separate + box-shadow 画下边线 */
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
 thead th {
+  position: sticky; top: 0; z-index: 2;
   padding: 10px 14px; text-align: left; white-space: nowrap;
-  background: var(--n50); border-bottom: 1px solid var(--n100);
+  background: var(--n50); box-shadow: inset 0 -1px 0 var(--n100);
   font-size: 12px; font-weight: 500; color: var(--n500);
 }
 tbody td { padding: 12px 14px; border-bottom: 1px solid var(--n75); vertical-align: top; }

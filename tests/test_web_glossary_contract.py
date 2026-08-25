@@ -96,3 +96,91 @@ def test_hidden_attribute_is_globally_enforced():
     assert re.search(r"\[hidden\]\s*\{[^}]*display:\s*none\s*!important", STYLES), (
         "styles.css 缺少全局 [hidden] { display: none !important }"
     )
+
+
+# ---------------------------------------------------------------------------
+# 无障碍与交互：都在浏览器里实测通过，这里做静态钉子防回归
+# ---------------------------------------------------------------------------
+def test_toast_is_a_live_region():
+    """toast 是操作结果的唯一反馈。不声明 live region，读屏用户收不到任何结果。"""
+    m = re.search(r'<div class="toast"[^>]*>', INDEX_HTML)
+    assert m, "找不到 toast 元素"
+    tag = m.group(0)
+    assert 'role="status"' in tag, "toast 缺少 role=status"
+    assert 'aria-live="polite"' in tag, (
+        "toast 缺少 aria-live。用 polite 而非 assertive：这些是完成通知，不该打断阅读"
+    )
+
+
+def test_skip_to_content_link_exists():
+    """左侧导航 15 个条目，键盘用户每换一页都要 Tab 穿过全部条目才能到正文。"""
+    assert 'class="skip"' in INDEX_HTML, "缺少跳到主内容的链接"
+    assert 'href="#stage"' in INDEX_HTML, "跳转链接必须指向主内容区"
+    # 不能用 display:none —— 那样键盘也聚焦不到，等于没做
+    m = re.search(r"\.skip\s*\{[^}]*\}", STYLES, re.S)
+    assert m, "styles.css 缺少 .skip 样式"
+    assert "display: none" not in m.group(0), (
+        "跳转链接不能用 display:none 隐藏，否则键盘无法聚焦"
+    )
+    assert ".skip:focus" in STYLES, "跳转链接必须在聚焦时可见"
+
+
+def test_wide_tables_have_sticky_headers():
+    """ROI 与证据台账都是 8 列宽表，往下翻两屏就忘了这一列是什么。
+
+    sticky 只相对最近的滚动祖先生效。`.tbl-scroll` 因 overflow 已成为滚动容器，
+    所以它必须有高度上限，否则 top:0 永远不触发——这一条最容易写错还看不出来。
+    """
+    assert re.search(r"thead th\s*\{[^}]*position:\s*sticky", STYLES, re.S), "表头未吸顶"
+    m = re.search(r"\.tbl-scroll\s*\{[^}]*\}", STYLES, re.S)
+    assert m and "max-height" in m.group(0), (
+        ".tbl-scroll 需要 max-height，否则它自己是滚动容器、sticky 不会触发"
+    )
+    # collapse 下 sticky 表头的边框会丢，因此必须改用 separate + 手动画线
+    assert re.search(r"table\s*\{[^}]*border-collapse:\s*separate", STYLES, re.S)
+    assert re.search(r"thead th\s*\{[^}]*box-shadow", STYLES, re.S), (
+        "separate 模式下表头下边线要用 box-shadow 画，否则边框会丢"
+    )
+
+
+def test_modal_manages_focus():
+    """模态对话框的焦点跑到背后页面上，就不再是"模态"了。"""
+    assert "function openModal" in APP_JS, "缺少统一的 openModal（焦点需要在打开前记录）"
+    assert "modalReturnFocus" in APP_JS, "关闭弹窗后必须把焦点还回触发按钮"
+    # 焦点圈定
+    assert re.search(r'e\.key !== "Tab"', APP_JS), "缺少 Tab 焦点圈定"
+    assert "shiftKey" in APP_JS, "焦点圈定必须同时处理 Shift+Tab 反向循环"
+    # 不允许再有绕过 openModal 的裸开法
+    bare = re.findall(r"modal\.hidden = false", APP_JS)
+    assert len(bare) == 1, (
+        f"发现 {len(bare)} 处 modal.hidden = false；除 openModal 内部外都应改走 openModal，"
+        "否则那些入口不会记录返回焦点"
+    )
+
+
+def test_reduced_motion_is_respected_globally():
+    """逐个列举动画名漏得快（本轮新增的浮层就漏过），所以全局关。
+
+    注意别把断言写成 `"*" in body`——`.skeleton > *` 里也有一个星号，
+    那样即使退回逐个列举，测试依然会绿。必须匹配真正的通用选择器。
+    """
+    m = re.search(r"@media \(prefers-reduced-motion: reduce\)\s*\{(.*?)\n\}", STYLES, re.S)
+    assert m, "缺少 prefers-reduced-motion 处理"
+    body = m.group(1)
+    assert re.search(r"^\s*\*\s*,", body, re.M) or re.search(r"^\s*\*\s*\{", body, re.M), (
+        "应以通用选择器全局关闭动画，而不是逐个列举 .view / .skeleton 这类具体类名"
+    )
+    assert "animation-duration" in body and "transition-duration" in body
+
+
+def test_nav_marks_current_page_for_screen_readers():
+    """只靠 class 变色，读屏用户不知道自己在哪一页。"""
+    assert 'aria-current", "page"' in APP_JS or "aria-current=\"page\"" in APP_JS, (
+        "导航缺少 aria-current"
+    )
+
+
+def test_interactive_controls_have_visible_focus():
+    """键盘用户看不见焦点在哪，等于不能用键盘。"""
+    for cls in (".term:focus-visible", ".bdg-btn:focus-visible", ".numref:focus-visible"):
+        assert cls in STYLES, f"{cls} 缺少可见焦点样式"

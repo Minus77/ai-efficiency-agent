@@ -1928,8 +1928,7 @@ function wireConnectors() {
           <button class="btn btn-primary" type="submit">保存并连接</button>
           <p class="msg" id="bkMsg"></p>
         </form>`;
-      document.getElementById("modalTitle").textContent = "连接：" + key;
-      modal.hidden = false;
+      openModal("连接：" + key);
       document.getElementById("bkId").focus();
 
       document.getElementById("bindForm").addEventListener("submit", async (e) => {
@@ -2168,8 +2167,39 @@ document.addEventListener("click", (e) => {
 const modal = document.getElementById("modal");
 const modalBody = document.getElementById("modalBody");
 
-function closeModal() { modal.hidden = true; modalBody.innerHTML = ""; }
+// 弹窗打开前的焦点，关闭后要还回去：否则焦点掉回页首，
+// 键盘用户得重新 Tab 一遍才能回到刚才那个按钮。
+let modalReturnFocus = null;
+
+function openModal(title) {
+  modalReturnFocus = document.activeElement;
+  if (title) document.getElementById("modalTitle").textContent = title;
+  modal.hidden = false;
+}
+
+function closeModal() {
+  if (modal.hidden) return;
+  modal.hidden = true;
+  modalBody.innerHTML = "";
+  const back = modalReturnFocus;
+  modalReturnFocus = null;
+  if (back && document.body.contains(back)) back.focus();
+}
+
 modal.addEventListener("click", (e) => { if (e.target.dataset.close !== undefined) closeModal(); });
+
+// 焦点圈在弹窗内：模态对话框的焦点跑到背后的页面上，就不再是"模态"了。
+modal.addEventListener("keydown", (e) => {
+  if (e.key !== "Tab" || modal.hidden) return;
+  const items = [...modal.querySelectorAll(
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  )].filter((el) => !el.disabled && el.offsetParent !== null);
+  if (!items.length) return;
+  const first = items[0];
+  const last = items[items.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   // 浮层是最"上层"的东西：有它就只关它，否则一次 Esc 会连带关掉底下的弹窗
@@ -2214,7 +2244,7 @@ document.getElementById("newClientBtn").addEventListener("click", () => {
       <button class="btn btn-primary" type="submit">创建并去上传材料</button>
       <p class="msg" id="ncMsg"></p>
     </form>`;
-  modal.hidden = false;
+  openModal("新建客户");
   document.getElementById("ncName").focus();
 
   document.getElementById("ncForm").addEventListener("submit", async (e) => {

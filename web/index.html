@@ -7,6 +7,9 @@
 <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
+<!-- 跳到主内容：左侧导航有 15 个条目，键盘用户每换一页都要 Tab 穿过全部条目
+     才能到正文。这是键盘可达性的标准做法，视觉上仅在聚焦时出现。 -->
+<a class="skip" href="#stage">跳到主内容</a>
 <header class="topbar">
   <div class="topbar-l">
     <div class="logo" aria-hidden="true"><span class="logo-mark"></span></div>
@@ -145,7 +148,10 @@
   </div>
 </div>
 
-<div class="toast" id="toast" hidden></div>
+<!-- role=status + aria-live：toast 是操作结果的唯一反馈（"已上传 3 份材料"、
+     "诊断完成"）。不声明 live region，读屏用户完全收不到这些结果。
+     用 polite 而非 assertive：这些是完成通知，不该打断用户正在读的内容。 -->
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <script type="module" src="/static/app.js"></script>
 </body>
