@@ -29,6 +29,15 @@ from .connector_intake import list_bindings, save_binding, sync_connector
 from .connectors import list_specs
 from .connectors.base import CredentialRef
 from .diagnose import DiagnosisNotReady, load_report, run_diagnosis
+from .glossary import (
+    all_terms,
+    delivery_scale,
+    difficulty_scale,
+    explain,
+    grade_scale,
+    grouped_terms,
+    work_form_scale,
+)
 from .intake import EVIDENCE_ROLES, list_materials, save_material
 from .knowledge import KnowledgeBase
 from .measure import capture_baseline, effect_summary, measure_effect
@@ -508,6 +517,27 @@ def create_app(*, root: Path | str | None = None, use_llm: bool = False) -> Fast
     @app.get("/api/clients/{slug}/observability")
     def client_observability(slug: str) -> dict[str, Any]:
         return _view(slug, "observability")
+
+    # ======================= 术语表与分级标准 =======================
+    # 不分租户：这是全局参考信息，任何客户下都一样
+    @app.get("/api/glossary")
+    def glossary() -> dict[str, Any]:
+        return {
+            "terms": all_terms(),
+            "groups": grouped_terms(),
+            "grade_scale": grade_scale(),
+            "work_form_scale": work_form_scale(),
+            "difficulty_scale": difficulty_scale(),
+            "delivery_scale": delivery_scale(),
+            "note": "报告里出现的每个专有名词都能在这里查到，包含判定标准与为什么值得看。",
+        }
+
+    @app.get("/api/glossary/{word}")
+    def glossary_term(word: str) -> dict[str, Any]:
+        d = explain(word)
+        if d is None:
+            raise HTTPException(status_code=404, detail=f"术语表中没有「{word}」")
+        return d
 
     # ======================= 连接器（L1 只读双轨） =======================
     # 测试专用连接器不进客户可见目录

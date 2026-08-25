@@ -40,8 +40,6 @@ const DASH = "\u2014";
 const ENDASH = "\u2013";
 
 const FORM = { continuous: "连续作业", batch: "批量作业", fragmented: "真碎片" };
-const lvl = (g) => `<span class="bdg bdg-${String(g).toLowerCase()}">${esc(g)} 级</span>`;
-const wf = (f) => `<span class="bdg bdg-n">${esc(FORM[f] || f)}</span>`;
 
 async function get(u) {
   if (cache.has(u)) return cache.get(u);
@@ -85,6 +83,218 @@ function toast(msg, kind = "") {
   toast._t = setTimeout(() => { el.hidden = true; }, 4200);
 }
 
+/* ============================ 术语解释 ============================ */
+// 术语表启动时拉一次并缓存：全局参考信息，不随客户变
+const glossary = { terms: new Map(), groups: [], scales: null, loaded: false };
+
+async function loadGlossary() {
+  if (glossary.loaded) return;
+  try {
+    const d = await get("/api/glossary");
+    d.terms.forEach((t) => glossary.terms.set(t.key, t));
+    glossary.groups = d.groups || [];
+    glossary.scales = {
+      grade: d.grade_scale,
+      workForm: d.work_form_scale,
+      difficulty: d.difficulty_scale,
+      delivery: d.delivery_scale,
+    };
+    glossary.loaded = true;
+  } catch (e) {
+    // 术语表拉不到不该阻断报告本身——降级为不带提示的纯文本
+    glossary.loaded = false;
+  }
+}
+
+/** 把术语渲染成可查的样式。用 <button> 而非 <span>：键盘可达、屏幕阅读器可识别。 */
+function term(key, display) {
+  const t = glossary.terms.get(key);
+  const label = display || (t ? t.label : key);
+  if (!t) return esc(label);
+  return `<button class="term" data-term="${esc(key)}" aria-label="查看「${esc(t.label)}」的解释">${esc(label)}</button>`;
+}
+
+/** 等级徽标 + 可点开判定标准。徽标本身就是解释入口，不用另找地方。 */
+function gradeBadge(g, { scale = false, suffix = "" } = {}) {
+  const grade = String(g || "C").toUpperCase();
+  const cls = grade.toLowerCase();
+  const text = grade + " 级" + suffix;
+  if (!scale) return `<span class="bdg bdg-${cls}">${esc(text)}</span>`;
+  return `<button class="bdg bdg-${cls} bdg-btn" data-scale="grade" data-grade="${esc(grade)}"
+    aria-expanded="false" aria-label="查看 ${esc(grade)} 级证据的判定标准">${esc(text)} <i class="bdg-q" aria-hidden="true">?</i></button>`;
+}
+
+/** 作业形态徽标：点开可看三种形态的判定标准与折现系数。 */
+function formBadge(f) {
+  const label = FORM[f] || f;
+  return `<button class="bdg bdg-n bdg-btn" data-scale="workForm" data-key="${esc(f)}"
+    aria-expanded="false" aria-label="查看「${esc(label)}」的判定标准与折现规则">${esc(label)} <i class="bdg-q" aria-hidden="true">?</i></button>`;
+}
+
+/** 难度值：裸着显示「2.02」没人看得懂，必须能点开看这把尺子怎么量的。 */
+function difficultyValue(v) {
+  return `<button class="numref" data-scale="difficulty" aria-expanded="false"
+    aria-label="落地难度 ${esc(num(v, 2))}，查看七维评分标准">${esc(num(v, 2))} <i class="bdg-q" aria-hidden="true">?</i></button>`;
+}
+
+/** 交付形态徽标：三档交付物各含什么、各缺什么，点开对照。 */
+function deliveryBadge(form) {
+  return `<button class="bdg bdg-info bdg-btn" data-scale="delivery" data-key="${esc(form)}"
+    aria-expanded="false" aria-label="查看「${esc(form)}」包含与不包含的内容">${esc(form)} <i class="bdg-q" aria-hidden="true">?</i></button>`;
+}
+
+/* ---------------- 解释浮层 ---------------- */
+// 单例浮层：同一时刻只允许一个。点开一片浮层互相遮盖是这类"可查"设计最常见的翻车方式。
+let popEl = null;
+let popAnchor = null;
+
+function closePop({ restoreFocus = false } = {}) {
+  if (!popEl) return;
+  const anchor = popAnchor;
+  popEl.remove();
+  popEl = null;
+  popAnchor = null;
+  if (anchor) {
+    anchor.setAttribute("aria-expanded", "false");
+    // 键盘关闭（Esc）要把焦点还回锚点，否则 Tab 序列会跳回页首
+    if (restoreFocus && document.body.contains(anchor)) anchor.focus();
+  }
+}
+
+/** 按锚点矩形摆放浮层。抽出来是因为滚动时要用同一套定位逻辑重算。 */
+function placePop(r) {
+  const w = popEl.offsetWidth;
+  const h = popEl.offsetHeight;
+  const gap = 8;
+  // 优先开在下方；下方空间不足就翻到上方，而不是硬贴视口底部盖住锚点自己
+  let top = r.bottom + gap;
+  if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - gap);
+  let left = r.left;
+  if (left + w > window.innerWidth - 12) left = Math.max(12, window.innerWidth - w - 12);
+  popEl.style.top = Math.round(top + window.scrollY) + "px";
+  popEl.style.left = Math.round(left + window.scrollX) + "px";
+}
+
+/** 在锚点旁开浮层。定位夹在视口内，避免靠右的锚点把内容顶出屏幕。 */
+function openPop(anchor, title, bodyHtml) {
+  const wasSame = popAnchor === anchor;
+  closePop();
+  if (wasSame) return;  // 再点一次是收起，符合 disclosure 控件的常规预期
+
+  popEl = document.createElement("div");
+  popEl.className = "pop";
+  popEl.setAttribute("role", "dialog");
+  popEl.setAttribute("aria-label", title);
+  popEl.innerHTML = `
+    <div class="pop-h">
+      <p class="pop-t">${esc(title)}</p>
+      <button class="pop-x" aria-label="关闭解释">×</button>
+    </div>
+    <div class="pop-b">${bodyHtml}</div>`;
+  document.body.appendChild(popEl);
+
+  placePop(anchor.getBoundingClientRect());
+
+  popEl.querySelector(".pop-x").addEventListener("click", () => closePop({ restoreFocus: true }));
+  const more = popEl.querySelector("[data-goto-glossary]");
+  if (more) {
+    more.addEventListener("click", async () => {
+      closePop();
+      await go("glossary");
+    });
+  }
+
+  popAnchor = anchor;
+  anchor.setAttribute("aria-expanded", "true");
+}
+
+/** 术语浮层：一句话解释 + 为什么值得看。 */
+function openTermPop(anchor, key) {
+  const t = glossary.terms.get(key);
+  if (!t) return;
+  openPop(anchor, t.label, `
+    <p class="pop-plain">${esc(t.plain)}</p>
+    <p class="pop-why"><b>为什么值得看</b>${esc(t.why)}</p>
+    <button class="pop-more" data-goto-glossary>全部术语与分级标准 \u203a</button>`);
+}
+
+/** 分级标准浮层：标准就地摊开。让用户跳去另一页查标准，多数人就不查了。 */
+function openScalePop(anchor, kind, key) {
+  const s = glossary.scales;
+  if (!s) return;
+
+  if (kind === "grade") {
+    const now = s.grade.find((g) => g.grade === key);
+    const rows = s.grade.map((g) => `
+      <tr class="${g.grade === key ? "is-now" : ""}">
+        <td><span class="bdg bdg-${g.grade.toLowerCase()}">${esc(g.grade)} 级</span></td>
+        <td><b>${esc(g.label)}</b><br><span class="dim">${esc(g.criteria)}</span></td>
+        <td>${esc(g.output)}</td>
+      </tr>`).join("");
+    openPop(anchor, "证据等级 A / B / C 的判定标准", `
+      <p class="pop-plain">等级评的是证据硬度，不是结论好坏。它决定这份报告敢用什么形式说话。</p>
+      <table class="scale-tbl">
+        <thead><tr><th>等级</th><th>什么材料够这一级</th><th>能给什么结论</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${now ? `<p class="pop-eg"><b>${esc(now.grade)} 级的例子</b>${esc(now.example)}</p>` : ""}
+      <button class="pop-more" data-goto-glossary>全部术语与分级标准 \u203a</button>`);
+    return;
+  }
+
+  if (kind === "workForm") {
+    const now = s.workForm.find((w) => w.key === key);
+    const rows = s.workForm.map((w) => `
+      <tr class="${w.key === key ? "is-now" : ""}">
+        <td><b>${esc(w.label)}</b></td>
+        <td>${esc(w.criteria)}</td>
+        <td class="r"><b>${w.discount}%</b></td>
+      </tr>`).join("");
+    openPop(anchor, "作业形态与折现规则", `
+      <p class="pop-plain">同样是省 5 分钟：攒着一次做完能省出整段时间，零散穿插全天则拼不成可用工时。</p>
+      <table class="scale-tbl">
+        <thead><tr><th>形态</th><th>判定标准</th><th style="text-align:right">计入收益</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${now ? `<p class="pop-eg"><b>为什么这么定</b>${esc(now.why)}</p>` : ""}
+      <button class="pop-more" data-goto-glossary>全部术语与分级标准 \u203a</button>`);
+    return;
+  }
+
+  if (kind === "difficulty") {
+    const d = s.difficulty;
+    const rows = d.dimensions.map((x) => `
+      <tr>
+        <td><b>${esc(x.name)}</b><br><span class="dim">${esc(x.plain)}</span></td>
+        <td class="r">${Math.round(x.weight * 100)}%</td>
+      </tr>`).join("");
+    openPop(anchor, "落地难度是怎么算出来的", `
+      <p class="pop-plain">${esc(d.range)}</p>
+      <table class="scale-tbl">
+        <thead><tr><th>七个维度</th><th style="text-align:right">权重</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <p class="pop-eg">${esc(d.note)}</p>
+      <button class="pop-more" data-goto-glossary>全部术语与分级标准 \u203a</button>`);
+    return;
+  }
+
+  if (kind === "delivery") {
+    const rows = s.delivery.map((x) => `
+      <tr class="${x.form === key ? "is-now" : ""}">
+        <td><b>${esc(x.form)}</b><br><span class="dim">前提：${esc(x.requires)}</span></td>
+        <td>${esc(x.includes)}${x.excludes ? `<br><span class="dim">${esc(x.excludes)}</span>` : ""}</td>
+      </tr>`).join("");
+    openPop(anchor, "交付形态由数据粒度决定", `
+      <p class="pop-plain">能拿到什么粒度的数据，就出什么形态的交付物。这在受理时就约定，不是做完才发现只能给方向。</p>
+      <table class="scale-tbl">
+        <thead><tr><th>形态 / 前提</th><th>包含内容</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <button class="pop-more" data-goto-glossary>全部术语与分级标准 \u203a</button>`);
+  }
+}
+
 const pageHead = (title, sub) =>
   `<div class="page-h"><h2>${esc(title)}</h2>${sub ? `<p>${esc(sub)}</p>` : ""}</div>`;
 
@@ -111,9 +321,9 @@ async function viewOverview() {
       <div class="report-id-l">
         <p class="report-id-meta">${esc(meta)}</p>
         <div class="report-id-tags">
-          <span class="bdg bdg-info">${esc(d.delivery_form)}</span>
-          <span class="bdg bdg-n">AS_OF ${esc(d.scope.as_of)}</span>
-          <span class="bdg bdg-${String(d.admission_probe.reachable_grade || "c").toLowerCase()}">${esc(d.admission_probe.reachable_grade)} 级可达</span>
+          ${deliveryBadge(d.delivery_form)}
+          <span class="bdg bdg-n">${term("AS_OF", "数据口径")} ${esc(d.scope.as_of)}</span>
+          ${gradeBadge(d.admission_probe.reachable_grade, { scale: true, suffix: " 可达" })}
           ${c.out_of_scope ? `<span class="bdg bdg-warn">规模范围外</span>` : ""}
         </div>
       </div>
@@ -122,24 +332,25 @@ async function viewOverview() {
 
     <div class="stats">
       <div class="stat stat-primary">
-        <p class="stat-k">已量化月度可省（去重后）</p>
+        <p class="stat-k">已量化月度可省（${term("去重")}后）</p>
         <p class="stat-v">${money(h.deduped_sum)}<small>/月起</small></p>
-        <p class="stat-n">保守档下限，仅含 A/B 级证据且可折现的场景</p>
+        <p class="stat-n">${term("保守档")}下限，仅含 A/B 级证据且可${term("折现")}的场景</p>
       </div>
       <div class="stat">
         <p class="stat-k">识别场景</p>
         <p class="stat-v">${h.children}<small>个</small></p>
-        <p class="stat-n">归入 ${h.parents} 个业务结果 · ${h.quantified} 个可给金额 · ${h.direction_only} 个仅方向</p>
+        <p class="stat-n">归入 ${h.parents} 个${term("业务结果")} · ${h.quantified} 个可给金额 · ${h.direction_only} 个仅方向</p>
       </div>
       <div class="stat">
-        <p class="stat-k">证据可追溯率</p>
+        <p class="stat-k">${term("可追溯率")}</p>
         <p class="stat-v">${Math.round(sc.evidence_traceability * 100)}<small>%</small></p>
-        <p class="stat-n">每条量化声明都能回指台账，这是交付门槛项</p>
+        <p class="stat-n">每条量化结论都能回指${term("证据台账")}，这是交付门槛项</p>
       </div>
       <div class="stat">
-        <p class="stat-k">证据等级分布</p>
+        <p class="stat-k">${term("证据等级")}分布</p>
         <p class="stat-v">${gd.A || 0}<small>A</small> ${gd.B || 0}<small>B</small> ${gd.C || 0}<small>C</small></p>
-        <div class="spark">
+        <div class="spark" role="img"
+             aria-label="A 级 ${gd.A || 0} 个，B 级 ${gd.B || 0} 个，C 级 ${gd.C || 0} 个">
           <i class="spark-a" style="flex:${pct(gd.A)}"></i>
           <i class="spark-b" style="flex:${pct(gd.B)}"></i>
           <i class="spark-c" style="flex:${pct(gd.C)}"></i>
@@ -148,14 +359,14 @@ async function viewOverview() {
     </div>
 
     <div class="sec">
-      <div class="sec-h"><h3>收益去重</h3><p>依赖场景分别计算会重复计上同一份收益，这里摊开差额</p></div>
+      <div class="sec-h"><h3>收益${term("去重")}</h3><p>依赖场景分别计算会重复计上同一份收益，这里摊开差额</p></div>
       <div class="card">
         <div class="fields">
           <div class="field"><dt>分别相加（不采用）</dt><dd class="dim">${money(h.naive_sum)}</dd></div>
           <div class="field"><dt>去重后（报告采用）</dt><dd class="mny">${money(h.deduped_sum)}</dd></div>
           <div class="field"><dt>差额</dt><dd>${money(h.dedup_delta)}</dd></div>
         </div>
-        <p class="hint">依赖释放的收益单列，不并入任何单个场景的自身收益，避免自行加总得出更大数字。</p>
+        <p class="hint">${term("依赖释放")}的收益单列，不并入任何单个场景的自身收益，避免自行加总得出更大数字。</p>
       </div>
     </div>
 
@@ -165,11 +376,11 @@ async function viewOverview() {
     </div>
 
     <div class="sec">
-      <div class="sec-h"><h3>受理前材料探测</h3><p>交付形态在受理时约定，不是做完才发现只能给方向</p></div>
+      <div class="sec-h"><h3>受理前材料探测</h3><p>${term("交付形态")}在受理时约定，不是做完才发现只能给方向</p></div>
       <div class="card">
         <div class="fields">
-          <div class="field"><dt>可达证据级别</dt><dd>${esc(d.admission_probe.reachable_grade)} 级</dd></div>
-          <div class="field"><dt>交付形态</dt><dd>${esc(d.admission_probe.delivery_form)}</dd></div>
+          <div class="field"><dt>可达${term("证据等级")}</dt><dd>${gradeBadge(d.admission_probe.reachable_grade, { scale: true })}</dd></div>
+          <div class="field"><dt>${term("交付形态")}</dt><dd>${deliveryBadge(d.admission_probe.delivery_form)}</dd></div>
           <div class="field"><dt>覆盖部门</dt><dd>${d.scope.departments.map(esc).join("、")}</dd></div>
           <div class="field"><dt>明确排除</dt><dd class="dim">${(d.scope.excluded || []).map(esc).join("、") || "无"}</dd></div>
         </div>
@@ -194,7 +405,7 @@ async function viewScenarios() {
       <div class="item-h">
         <span class="item-id">${esc(c.card_id)}</span>
         <p class="item-t">${esc(c.name)}</p>
-        ${lvl(c.evidence_grade)}${wf(c.work_form)}
+        ${gradeBadge(c.evidence_grade, { scale: true })}${formBadge(c.work_form)}
         ${c.conflict ? `<span class="bdg bdg-warn">冲突 · 转人工</span>` : ""}
         ${c.in_body ? "" : `<span class="bdg bdg-n">已标灰 · 不计入数字</span>`}
       </div>
@@ -209,19 +420,21 @@ async function viewScenarios() {
         <div class="field"><dt>收益构成</dt><dd>${esc(c.benefit_composition)}</dd></div>
         <div class="field"><dt>依赖关系</dt><dd>${esc(c.dependency)}</dd></div>
       </div>
-      <p class="hint">形态判定：${esc(c.forensics_note)}</p>
+      <p class="hint">${term("作业形态")}判定：${esc(c.forensics_note)}</p>
       ${c.capability?.known_limits ? `<p class="hint">能力边界：${esc(c.capability.known_limits)}</p>` : ""}
       ${c.conflict_note ? `<p class="hint hint-warn"><b>冲突已标注：</b>${esc(c.conflict_note)}</p>` : ""}
       <div class="chips">
-        <span class="chips-l">证据</span>
-        ${c.evidence_refs.map((x) => `<button class="chip-ref" data-ref="${esc(x)}">${esc(x)}</button>`).join("")}
+        <span class="chips-l">${term("证据台账", "证据")}</span>
+        ${c.evidence_refs.map((x) => `<button class="chip-ref" data-ref="${esc(x)}" title="跳到证据台账中的这一条">${esc(x)}</button>`).join("")}
         <span class="chips-l" style="margin-left:6px">落地依赖：${esc(c.landing_dependency)}</span>
       </div>
     </div>`;
   };
 
   return `
-    ${pageHead("场景清单", "父层是老板视角的业务结果，子层是可估算、可自动化的连续操作序列；子层在父内穷尽，依赖关系天然闭合")}
+    ${pageHead("场景清单", "")}
+    <p class="page-lead">父层是老板视角的${term("业务结果")}，子层是可估算、可自动化的${term("操作序列")}。
+      子层在父内穷尽，依赖关系天然闭合。</p>
     ${d.parents.map((p) => `
       <div class="flow">
         <div class="flow-h">
@@ -259,7 +472,9 @@ async function viewMatrix() {
     const label = i.benefit > 0 ? money(i.benefit) + "/月" : "仅方向";
     return `
     <div class="dot-wrap ${cls[i.quadrant] || ""}" style="left:${xOf(i.difficulty).toFixed(1)}%;bottom:${yOf(i.benefit).toFixed(1)}%">
-      <button class="dot-btn" data-card="${esc(i.card_id)}" title="${esc(i.name)}｜${label}｜难度 ${i.difficulty}">
+      <button class="dot-btn" data-card="${esc(i.card_id)}"
+              title="${esc(i.name)}｜${label}｜落地难度 ${i.difficulty}（1 最易 5 最难）｜点击看明细"
+              aria-label="${esc(i.name)}，${label}，落地难度 ${i.difficulty}，点击查看场景明细">
         <span class="dot-c"></span><span class="dot-lab">${esc(i.name)}</span>
       </button>
     </div>`;
@@ -277,7 +492,9 @@ async function viewMatrix() {
   };
 
   return `
-    ${pageHead("优先级矩阵", "两轴固定为收益 × 落地难度。不引入第三轴——三维矩阵中小企业主看不懂，反而妨碍拍板")}
+    ${pageHead("优先级矩阵", "")}
+    <p class="page-lead">两轴固定为收益 × ${term("七维", "落地难度")}。不引入第三轴——三维矩阵中小企业主看不懂，反而妨碍拍板。
+      <span class="dim">点任意一个点可跳到该场景明细。</span></p>
 
     <div class="plot-wrap">
       <div class="plot">
@@ -289,7 +506,7 @@ async function viewMatrix() {
         <div class="plot-mid-h"></div>
         ${dots}
         <span class="ax-y">收益（元/月）</span>
-        <span class="ax-x">落地难度（七维加权 1-5）</span>
+        <span class="ax-x">落地难度（${term("七维", "七维加权")} 1\u20135，分越高越难）</span>
         <span class="ax-t" style="left:-40px;bottom:49%">${money(t.benefit)}</span>
         <span class="ax-t" style="left:49%;bottom:-20px">${t.difficulty}</span>
       </div>
@@ -303,8 +520,9 @@ async function viewMatrix() {
       <div class="card">
         <div class="fields">
           <div class="field"><dt>收益轴</dt><dd class="dim">${esc(d.axes.benefit)}</dd></div>
-          <div class="field"><dt>难度轴</dt><dd class="dim">${esc(d.axes.difficulty)}</dd></div>
+          <div class="field"><dt>难度轴（${term("七维")}）</dt><dd class="dim">${esc(d.axes.difficulty)}</dd></div>
           <div class="field"><dt>收益分界</dt><dd>${money(t.benefit)}<span class="dim"> · ${esc(t.benefit_basis)}</span></dd></div>
+          <div class="field"><dt>难度分界</dt><dd>${difficultyValue(t.difficulty)}<span class="dim"> · 高于此值算"难"</span></dd></div>
         </div>
         <p class="hint hint-info">${esc(d.note)}</p>
       </div>
@@ -329,7 +547,7 @@ async function viewRoi() {
     return `
       <tr>
         <td class="nm">${esc(i.name)}<span class="sub">${esc(i.card_id)}</span></td>
-        <td>${lvl(i.evidence_grade)} ${wf(i.work_form)}</td>
+        <td>${gradeBadge(i.evidence_grade, { scale: true })} ${formBadge(i.work_form)}</td>
         <td class="r">${hrs(i.monthly_minutes)}</td>
         <td class="r">${Math.round(i.discount_factor * 100)}%</td>
         <td class="r">${hrs(i.discounted_monthly_minutes)}</td>
@@ -342,21 +560,27 @@ async function viewRoi() {
   const quantified = d.items.filter((i) => i.tiers.length);
 
   return `
-    ${pageHead("分级 ROI", "呈现强度由证据等级决定，不由模型自评：A 级给点估 + 区间，B 级仅区间，C 级不给数字")}
+    ${pageHead("分级 ROI", "")}
+    <p class="page-lead">呈现强度由${term("证据等级")}决定，不由模型自评：A 级给${term("点估")} + ${term("区间")}，
+      B 级仅区间，C 级不给数字。表头每个专有名词都可以点开看定义。</p>
 
     <div class="tbl">
       <div class="tbl-scroll">
         <table>
           <thead><tr>
-            <th>场景</th><th>等级 / 形态</th><th style="text-align:right">月度工时</th>
-            <th style="text-align:right">折现</th><th style="text-align:right">折现后</th>
-            <th style="text-align:right">收益区间（保守→中性）</th>
-            <th style="text-align:right">点估（仅 A 级）</th><th style="text-align:right">回本（保守）</th>
+            <th>场景</th>
+            <th>${term("证据等级", "等级")} / ${term("作业形态", "形态")}</th>
+            <th style="text-align:right">月度工时</th>
+            <th style="text-align:right">${term("折现")}</th>
+            <th style="text-align:right">折现后</th>
+            <th style="text-align:right">收益${term("区间")}（${term("保守档", "保守→中性")}）</th>
+            <th style="text-align:right">${term("点估")}（仅 A 级）</th>
+            <th style="text-align:right">${term("回本周期", "回本")}（保守）</th>
           </tr></thead>
           <tbody>
             ${d.items.map(row).join("")}
             <tr class="sum">
-              <td>去重后合计</td><td>${DASH}</td><td class="r">${DASH}</td><td class="r">${DASH}</td>
+              <td>${term("去重")}后合计</td><td>${DASH}</td><td class="r">${DASH}</td><td class="r">${DASH}</td>
               <td class="r">${DASH}</td><td class="r">${money(d.aggregate.deduped_sum)} 起</td>
               <td class="r">${DASH}</td><td class="r">${DASH}</td>
             </tr>
@@ -369,10 +593,10 @@ async function viewRoi() {
       <div class="sec-h"><h3>计算过程</h3><p>每一步都摊开，便于逐条质疑</p></div>
       ${quantified.map((i) => `
         <div class="card">
-          <div class="card-h"><h3>${esc(i.name)}</h3>${lvl(i.evidence_grade)}</div>
+          <div class="card-h"><h3>${esc(i.name)}</h3>${gradeBadge(i.evidence_grade, { scale: true })}</div>
           <p class="hint">${i.calculation_trace.map((x) => esc(x)).join("<br>")}</p>
           ${i.dependency !== "独立" ? `<p class="hint hint-info">依赖关系：${esc(i.dependency)}，只计入独立可实现部分。</p>` : ""}
-          ${i.dependency_released_saving ? `<p class="hint hint-info">另有依赖释放收益 ${money(i.dependency_released_saving)}/月，单列不并入本场景。</p>` : ""}
+          ${i.dependency_released_saving ? `<p class="hint hint-info">另有${term("依赖释放")}收益 ${money(i.dependency_released_saving)}/月，单列不并入本场景。</p>` : ""}
         </div>`).join("")}
     </div>
 
@@ -421,13 +645,16 @@ async function viewEvidence() {
   const subSans = 'class="sub" style="font-family:var(--sans);font-size:11.5px"';
 
   return `
-    ${pageHead("证据台账", "客户质疑某个数字时，翻这张表就能回答『这条来自你们哪份导出、共多少条记录』")}
+    ${pageHead("证据台账", "")}
+    <p class="page-lead">客户质疑某个数字时，翻这张表就能当场回答「这条来自你们哪份导出、共多少条记录」。
+      报告里每处 <code class="code-inline">E1</code> 这样的编号都指向这里的一行。</p>
     <div class="tbl">
       <div class="tbl-scroll">
         <table>
           <thead><tr>
-            <th>编号</th><th>类型</th><th>来源与获取方式</th><th style="text-align:right">样本量</th>
-            <th>可靠性与判定理由</th><th>支撑字段</th><th>冲突</th>
+            <th>编号</th><th>类型</th><th>来源与获取方式</th>
+            <th style="text-align:right">${term("样本量")}</th>
+            <th>${term("证据等级", "等级")}与判定理由</th><th>支撑哪些结论</th><th>冲突</th>
           </tr></thead>
           <tbody>
             ${d.items.map((e) => `
@@ -436,7 +663,7 @@ async function viewEvidence() {
                 <td>${esc(TYPE[e.source_type] || e.source_type)}</td>
                 <td style="max-width:280px">${esc(e.origin)}</td>
                 <td class="r">${e.sample_size != null ? num(e.sample_size) : DASH}</td>
-                <td>${lvl(e.grade)}<span ${subSans}>${esc(e.grade_reason)}</span></td>
+                <td>${gradeBadge(e.grade, { scale: true })}<span ${subSans}>${esc(e.grade_reason)}</span></td>
                 <td><span class="sub" style="margin-top:0">${e.supports.map(esc).join("<br>") || DASH}</span></td>
                 <td>${e.conflict ? `<span class="bdg bdg-warn">冲突</span><span ${subSans}>${esc(e.conflict_note)}</span>` : DASH}</td>
               </tr>`).join("")}
@@ -445,13 +672,16 @@ async function viewEvidence() {
       </div>
     </div>
     <div class="card" style="margin-top:12px">
-      <div class="card-h"><h3>分级与裁决规则</h3></div>
-      <div class="fields">
-        <div class="field"><dt>A 级</dt><dd class="dim">${esc(d.grading_rule.A)}</dd></div>
-        <div class="field"><dt>B 级</dt><dd class="dim">${esc(d.grading_rule.B)}</dd></div>
-        <div class="field"><dt>C 级</dt><dd class="dim">${esc(d.grading_rule.C)}</dd></div>
+      <div class="card-h">
+        <h3>分级与裁决规则</h3>
+        <p>同一件事有多份材料且互相矛盾时，按固定优先级裁决——不按"哪个数字更好看"</p>
       </div>
-      <p class="hint">裁决优先级：${esc(d.adjudication_order)}</p>
+      <div class="fields">
+        <div class="field"><dt>${gradeBadge("A", { scale: true })}</dt><dd class="dim">${esc(d.grading_rule.A)}</dd></div>
+        <div class="field"><dt>${gradeBadge("B", { scale: true })}</dt><dd class="dim">${esc(d.grading_rule.B)}</dd></div>
+        <div class="field"><dt>${gradeBadge("C", { scale: true })}</dt><dd class="dim">${esc(d.grading_rule.C)}</dd></div>
+      </div>
+      <p class="hint"><b>裁决优先级</b>（左边优先于右边）：${esc(d.adjudication_order)}</p>
       <p class="hint hint-warn">${esc(d.conflict_rule)}</p>
     </div>`;
 }
@@ -462,7 +692,9 @@ async function viewReview() {
   const SEV = { "高": "bdg-danger", "中": "bdg-warn", "低": "bdg-n" };
 
   return `
-    ${pageHead("反评审与缺口", "先由独立视角反驳自己，再把没拿到的材料摊开")}
+    ${pageHead("反评审与缺口", "")}
+    <p class="page-lead">先由独立视角反驳自己（${term("反评审")}），再把没拿到的材料（${term("缺口")}）摊开。
+      这两块是主动示弱：写清楚哪里可能错、哪里没数据，比通篇自信更值得信。</p>
 
     <div class="sec">
       <div class="sec-h">
@@ -485,7 +717,7 @@ async function viewReview() {
     <div class="sec">
       <div class="sec-h">
         <h3>未获取的材料及其影响</h3>
-        <p>证据空缺闭合率 ${Math.round(g.closure_rate * 100)}%</p>
+        <p>${term("闭合率", "缺口闭合率")} ${Math.round(g.closure_rate * 100)}%　·　已拿到手的材料占需要材料的比例</p>
       </div>
       ${g.items.map((i) => `
         <div class="card">
@@ -511,7 +743,9 @@ async function viewReview() {
 async function viewInsights() {
   const d = await get(API.insights);
   return `
-    ${pageHead("经验判断", "顾问最有价值的洞察常常没有数据支撑。单独放在这里，既保住价值，也不污染前面的证据链")}
+    ${pageHead("经验判断", "")}
+    <p class="page-lead">顾问最有价值的洞察常常没有数据支撑。${term("经验判断")}单独放在这里，
+      既保住价值，也不污染前面的证据链。</p>
     <div class="expert-hd">
       <h3>${esc(d.title)}</h3>
       <span class="bdg bdg-n">无数据支撑</span>
@@ -526,6 +760,140 @@ async function viewInsights() {
         </dl>
         <p class="exp-lab">${esc(i.label)}　·　本区按设计不含任何金额与回本周期</p>
       </div>`).join("")}`;
+}
+
+/* ============================ 术语与标准（参考页） ============================ */
+// 这一页不依赖任何客户数据：没选客户时也能查。术语解释本身就该随时可查，
+// 而不是"先建个客户才能看懂名词"。
+async function viewGlossary() {
+  await loadGlossary();
+  if (!glossary.loaded) {
+    return pageHead("术语与标准", "术语表暂时取不到，请刷新页面重试");
+  }
+
+  const s = glossary.scales;
+
+  const termRow = (t) => `
+    <div class="gl-term" data-hay="${esc((t.key + " " + t.label + " " + t.plain).toLowerCase())}">
+      <p class="gl-term-t">${esc(t.label)}</p>
+      <p class="gl-term-p">${esc(t.plain)}</p>
+      <p class="gl-term-w"><b>为什么值得看</b>${esc(t.why)}</p>
+    </div>`;
+
+  const groups = glossary.groups.map((g, i) => `
+    <section class="gl-group" data-gl-group>
+      <div class="gl-group-h">
+        <h3>${esc(g.group)}</h3>
+        <p>${esc(g.intro)}</p>
+      </div>
+      <div class="gl-terms">${g.terms.map(termRow).join("")}</div>
+    </section>`).join("");
+
+  const gradeRows = s.grade.map((g) => `
+    <tr>
+      <td><span class="bdg bdg-${g.grade.toLowerCase()}">${esc(g.grade)} 级</span><br>
+          <span class="dim">${esc(g.label)}</span></td>
+      <td>${esc(g.criteria)}</td>
+      <td><b>${esc(g.output)}</b></td>
+      <td class="dim">${esc(g.example)}</td>
+    </tr>`).join("");
+
+  const formRows = s.workForm.map((w) => `
+    <tr>
+      <td><b>${esc(w.label)}</b></td>
+      <td>${esc(w.criteria)}</td>
+      <td class="r"><b>${w.discount}%</b></td>
+      <td class="dim">${esc(w.why)}</td>
+    </tr>`).join("");
+
+  const diffRows = s.difficulty.dimensions.map((x) => `
+    <tr>
+      <td><b>${esc(x.name)}</b></td>
+      <td>${esc(x.plain)}</td>
+      <td class="r">${Math.round(x.weight * 100)}%</td>
+    </tr>`).join("");
+
+  const delRows = s.delivery.map((x) => `
+    <tr>
+      <td><b>${esc(x.form)}</b></td>
+      <td>${esc(x.requires)}</td>
+      <td>${esc(x.includes)}</td>
+      <td class="dim">${esc(x.excludes) || "\u2014"}</td>
+    </tr>`).join("");
+
+  return `
+    ${pageHead("术语与标准", "报告里出现的每个专有名词都能在这里查到判定标准。界面上带虚线下划线的词可以直接点开看解释")}
+
+    <div class="gl-search-wrap">
+      <div class="conn-search">
+        <svg viewBox="0 0 16 16" class="conn-search-ico" aria-hidden="true"><path d="M10.5 9h-.8l-.3-.3a4.5 4.5 0 10-.7.7l.3.3v.8l3.5 3.5 1-1zM6.5 9a2.5 2.5 0 110-5 2.5 2.5 0 010 5z"/></svg>
+        <input id="glSearch" class="inp" placeholder="搜术语，如：折现、回本、基线" autocomplete="off" aria-label="搜索术语" />
+      </div>
+      <p class="conn-count">共 <strong>${glossary.terms.size}</strong> 个术语</p>
+    </div>
+    <p class="conn-empty" id="glEmpty" hidden>没有匹配的术语。</p>
+
+    <div class="sec">
+      <div class="sec-h">
+        <h3>四张分级标准表</h3>
+        <p>报告里所有等级、分数、形态的判定口径都在这里，先看这四张表再看报告会顺很多</p>
+      </div>
+
+      <div class="card">
+        <div class="card-h">
+          <h3>一、证据等级 A / B / C</h3>
+          <p>等级评的是证据硬度，不是结论好坏——它决定报告敢用什么形式说话</p>
+        </div>
+        <div class="tbl-scroll"><table class="scale-tbl scale-wide">
+          <thead><tr><th>等级</th><th>什么材料够这一级</th><th>能给什么结论</th><th>例子</th></tr></thead>
+          <tbody>${gradeRows}</tbody>
+        </table></div>
+        <p class="hint hint-warn">C 级不给任何金额。这不是能力不足，是没有可核的痕迹时给金额等于编数字。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-h">
+          <h3>二、作业形态与折现</h3>
+          <p>决定省下来的工时能不能计入收益</p>
+        </div>
+        <div class="tbl-scroll"><table class="scale-tbl scale-wide">
+          <thead><tr><th>形态</th><th>判定标准</th><th style="text-align:right">计入收益</th><th>为什么这么定</th></tr></thead>
+          <tbody>${formRows}</tbody>
+        </table></div>
+        <p class="hint">判定依据是材料里的时间戳聚集性，不是客户口述"感觉挺零散"。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-h">
+          <h3>三、落地难度（七维加权 1\u20135 分）</h3>
+          <p>${esc(s.difficulty.range)}</p>
+        </div>
+        <div class="tbl-scroll"><table class="scale-tbl scale-wide">
+          <thead><tr><th>维度</th><th>看的是什么</th><th style="text-align:right">权重</th></tr></thead>
+          <tbody>${diffRows}</tbody>
+        </table></div>
+        <p class="hint hint-info">${esc(s.difficulty.note)}</p>
+      </div>
+
+      <div class="card">
+        <div class="card-h">
+          <h3>四、交付形态</h3>
+          <p>能拿到什么粒度的数据，就出什么形态的交付物</p>
+        </div>
+        <div class="tbl-scroll"><table class="scale-tbl scale-wide">
+          <thead><tr><th>形态</th><th>前提</th><th>包含</th><th>不包含</th></tr></thead>
+          <tbody>${delRows}</tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-h">
+        <h3>术语表</h3>
+        <p>按主题分组。每个词都回答两件事：它是什么，以及为什么值得你关心</p>
+      </div>
+      ${groups}
+    </div>`;
 }
 
 /* ============================ 系统 运行简报 ============================ */
@@ -663,12 +1031,14 @@ async function viewClients() {
 }
 
 /* ============================ 材料采集 ============================ */
+// R1–R5 是内部编号，对用户没有任何意义，因此界面只出现"这份材料是什么"
+// 与"它能撑到哪一级"。编号仅作为 value 传回服务端。
 const ROLE_OPTIONS = [
-  ["R1", "时间戳导出（首选，A 级）"],
-  ["R2", "补数表（兜底，B 级）"],
-  ["R3", "多方交叉材料（B 级）"],
-  ["R4", "工时记录（A 级）"],
-  ["R5", "纪要类文档（C 级，仅定位痛点）"],
+  ["R1", "带时间的明细导出 —— 首选，可达 A 级"],
+  ["R2", "补数表（数字填空）—— 上限 B 级"],
+  ["R3", "两个角色分别提供的材料 —— 上限 B 级"],
+  ["R4", "工时记录（连续记 3\u20135 天）—— 可达 A 级"],
+  ["R5", "会议纪要 / 反馈文档 —— 上限 C 级，只用于找痛点"],
 ];
 
 async function viewIntake() {
@@ -708,9 +1078,10 @@ async function viewIntake() {
       <div class="sec-h"><h3>当前客户</h3><p>${esc(me.name || state.slug)}</p></div>
       <div class="role-pick">
         <label for="roleSel">这份材料属于</label>
-        <select id="roleSel" class="inp" style="max-width:280px">
+        <select id="roleSel" class="inp" style="max-width:400px">
           ${ROLE_OPTIONS.map(([v, t]) => `<option value="${v}" ${v === state.role ? "selected" : ""}>${esc(t)}</option>`).join("")}
         </select>
+        <p class="hint-inline">选错不影响上传，但会影响这份材料能撑到哪个${term("证据等级")}</p>
       </div>
       <div class="drop" id="drop">
         <svg viewBox="0 0 24 24" class="drop-ico" aria-hidden="true"><path d="M12 2l5 5h-4v7h-2V7H7zM4 18h16v3H4z"/></svg>
@@ -1037,8 +1408,8 @@ async function viewConnectors() {
 
       <div class="sec" style="margin-top:16px">
         <div class="card">
-          <p class="hint">连接后每次同步都会把拉到的数据落成一份材料，与手工上传的导出并列进入证据台账。
-          同一活动若 L1 与客户自述偏差超过 30%，台账会标注冲突并转人工判断——不取均值掩盖分歧。</p>
+          <p class="hint">连接后每次同步都会把拉到的数据落成一份材料，与手工上传的导出并列进入${term("证据台账")}。
+          同一活动若连接器取到的数与客户自述偏差超过 30%，台账会标注冲突并转人工判断——不取均值掩盖分歧。</p>
         </div>
       </div>`;
   }
@@ -1046,7 +1417,9 @@ async function viewConnectors() {
   // ---- 一级：只给类别 + 品牌标识 ----
   const totalBound = bound.items.length;
   return `
-    ${pageHead("系统连接器", "先选客户在用的系统类别，点进去再挑具体产品。L0 手工导入与 L1 只读 API 双轨并行，不是二选一")}
+    ${pageHead("系统连接器", "")}
+    <p class="page-lead">先选客户在用的系统类别，点进去再挑具体产品。
+      ${term("L0")}与${term("L1")}双轨并行，不是二选一——手工导出随时能开始，接了连接器才能周期性取数、衡量改造效果。</p>
 
     ${banner}
 
@@ -1054,14 +1427,14 @@ async function viewConnectors() {
       <p class="conn-count">
         共 <strong>${catalog.items.length}</strong> 个连接器，分 ${groups.size} 类　·　已连接 <strong>${totalBound}</strong> 个
       </p>
-      <p class="conn-count">等级是诚实声明的能力边界，不是营销话术</p>
+      <p class="conn-count">卡片上的 ${gradeBadge("A", { scale: true })} 是这类系统最多能拿到的${term("证据等级")}，是能力边界而非营销话术</p>
     </div>
 
     <div class="cat-grid">${connCategoryGrid(groups, boundMap)}</div>
 
     <div class="sec" style="margin-top:20px">
       <div class="card">
-        <p class="hint">客户系统不在清单里？用「其他」分组的通用类别模板，或先走 L0 手工导出——
+        <p class="hint">客户系统不在清单里？用「其他」分组的通用类别模板，或先走${term("L0", "手工导出")}——
         两条轨道并行，不影响出报告。</p>
       </div>
     </div>`;
@@ -1093,20 +1466,25 @@ async function viewEffect() {
       <td class="r">${cell(m.baseline_value)}<span class="sub">${m.baseline_sample_size != null ? "样本 " + m.baseline_sample_size : ""}</span></td>
       <td class="r">${cell(m.measured_value)}<span class="sub">${m.measured_sample_size != null ? "样本 " + m.measured_sample_size : ""}</span></td>
       <td class="r">${cell(m.improvement_pct, "%")}</td>
-      <td>${dirBadge(m.direction)}${m.low_confidence ? ` <span class="bdg bdg-warn">低置信</span>` : ""}</td>
+      <td>${dirBadge(m.direction)}${m.low_confidence
+        ? ` <button class="bdg bdg-warn bdg-btn" data-term="置信" aria-expanded="false"
+              aria-label="查看低置信的含义">低置信 <i class="bdg-q" aria-hidden="true">?</i></button>`
+        : ""}</td>
     </tr>`).join("");
 
   return `
-    ${pageHead("改造效果", "只用与场景强直接关联的过程指标，且必须有改造前基线——没有基线的『改善』无法证明是改造带来的")}
+    ${pageHead("改造效果", "")}
+    <p class="page-lead">只用与场景强直接关联的${term("过程指标")}，且必须有${term("基线", "改造前基线")}——
+      没有基线的「改善」无法证明是改造带来的。衡量分两步：改造前记基线，改造后${term("后测", "复测")}同一指标。</p>
 
     <div class="stats">
       <div class="stat">
-        <p class="stat-k">已记基线</p>
+        <p class="stat-k">已记${term("基线")}</p>
         <p class="stat-v">${d.baselines.length}<small>项</small></p>
         <p class="stat-n">基线不可变，重复记录产生新版本并保留前版</p>
       </div>
       <div class="stat">
-        <p class="stat-k">已复测</p>
+        <p class="stat-k">已${term("后测", "复测")}</p>
         <p class="stat-v">${d.measurements.length}<small>项</small></p>
         <p class="stat-n">改善 ${d.improved_count} · 退步 ${d.regressed_count}</p>
       </div>
@@ -1189,7 +1567,7 @@ async function viewEffect() {
             <div>
               <label for="mfSample">样本量</label>
               <input id="mfSample" class="inp" type="number" min="1" placeholder="如：40" />
-              <p class="hint-inline">低于 20 会标注低置信</p>
+              <p class="hint-inline">算这个数字用了多少条记录。低于 20 会标注${term("置信", "低置信")}</p>
             </div>
             <div>
               <label for="mfSource">数据来源<em>*</em></label>
@@ -1199,7 +1577,7 @@ async function viewEffect() {
           <button class="btn btn-primary" type="submit">提交</button>
           <p class="msg" id="mfMsg"></p>
         </form>
-        <p class="note">不采信营收、利润率等经营结果指标：波动原因太多，拿它校准会训出错误关联。</p>
+        <p class="note">不采信营收、利润率等${term("经营结果指标")}：波动原因太多，拿它校准会训出错误关联。</p>
       </div>
     </div>`;
 }
@@ -1211,6 +1589,7 @@ const VIEWS = {
   overview: viewOverview, scenarios: viewScenarios, matrix: viewMatrix,
   roi: viewRoi, roadmap: viewRoadmap, evidence: viewEvidence,
   review: viewReview, insights: viewInsights, observability: viewObservability,
+  glossary: viewGlossary,
 };
 const REPORT_VIEWS = new Set([
   "overview", "scenarios", "matrix", "roi", "roadmap", "evidence", "review", "insights", "observability",
@@ -1235,10 +1614,28 @@ async function render(name) {
     if (err.status === 409) {
       stage.innerHTML = `<div class="view">` + viewNeedsDiagnosis(err.message) + `</div>`;
     } else {
-      stage.innerHTML = `<div class="view">` + pageHead("加载失败", String(err.message)) + `</div>`;
+      stage.innerHTML = `<div class="view">` + viewLoadFailed(err) + `</div>`;
     }
     wire();
   }
+}
+
+/** 错误态：只说"加载失败"等于把用户扔在原地。给出原因 + 一个能点的下一步。 */
+function viewLoadFailed(err) {
+  return `
+    ${pageHead("这一页没能打开", "")}
+    <div class="card">
+      <div class="empty">
+        <svg viewBox="0 0 24 24" class="empty-ico" aria-hidden="true"><path d="M12 2l10 19H2zM11 9h2v6h-2zM11 16.5h2V19h-2z"/></svg>
+        <h3>${esc(err.status ? "服务返回了错误（" + err.status + "）" : "无法连接到本地服务")}</h3>
+        <p>${esc(String(err.message || "未知错误"))}</p>
+        <div class="empty-acts">
+          <button class="btn btn-primary" data-retry>重试这一页</button>
+          <button class="btn btn-ghost" data-goto="clients">回到客户列表</button>
+        </div>
+        <p class="hint">若反复失败，检查本地服务是否还在运行（终端里那个 run.py 进程）。</p>
+      </div>
+    </div>`;
 }
 
 function highlight(el) {
@@ -1342,10 +1739,76 @@ function wire() {
     })
   );
 
+  // 错误态的重试：清缓存再渲染同一页，否则会把上次那个失败的响应又拿出来
+  stage.querySelectorAll("[data-retry]").forEach((el) =>
+    el.addEventListener("click", async () => {
+      clearCache();
+      await go(currentView);
+    })
+  );
+
   wireIntake();
   wireConnectors();
   wireEffect();
   wireFeedback();
+  wireExplain(stage);
+  wireGlossaryPage();
+}
+
+/** 术语与分级标准的点击入口。root 可以是 stage 也可以是侧栏——两处都要能查。 */
+function wireExplain(root) {
+  root.querySelectorAll("[data-term]").forEach((el) =>
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openTermPop(el, el.dataset.term);
+    })
+  );
+  root.querySelectorAll("[data-scale]").forEach((el) =>
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openScalePop(el, el.dataset.scale, el.dataset.grade || el.dataset.key || "");
+    })
+  );
+  root.querySelectorAll("[data-view-link]").forEach((el) =>
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      go(el.dataset.viewLink);
+    })
+  );
+}
+
+/** 术语页搜索：纯前端过滤。37 个词不值得往后端加接口，且即时响应比一次往返好用。 */
+function wireGlossaryPage() {
+  const search = document.getElementById("glSearch");
+  if (!search) return;
+
+  const terms = [...stage.querySelectorAll(".gl-term")];
+  const groups = [...stage.querySelectorAll("[data-gl-group]")];
+  const empty = document.getElementById("glEmpty");
+
+  const apply = () => {
+    const q = search.value.trim().toLowerCase();
+    let shown = 0;
+    terms.forEach((t) => {
+      const hit = !q || (t.dataset.hay || "").includes(q);
+      t.hidden = !hit;
+      if (hit) shown += 1;
+    });
+    // 整组被过滤空时连组标题一起隐藏，否则留下一串空标题
+    groups.forEach((g) => {
+      g.hidden = ![...g.querySelectorAll(".gl-term")].some((t) => !t.hidden);
+    });
+    if (empty) empty.hidden = shown > 0;
+  };
+
+  search.addEventListener("input", apply);
+  search.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      search.value = "";
+      apply();
+    }
+  });
 }
 
 function wireConnectors() {
@@ -1630,7 +2093,14 @@ function wireFeedback() {
 }
 
 async function go(name) {
-  document.querySelectorAll(".nav-item").forEach((b) => b.classList.toggle("is-active", b.dataset.view === name));
+  document.querySelectorAll(".nav-item").forEach((b) => {
+    const on = b.dataset.view === name;
+    b.classList.toggle("is-active", on);
+    // 只靠 class 变色，读屏用户完全不知道自己在哪一页。aria-current 才是标准做法。
+    if (on) b.setAttribute("aria-current", "page");
+    else b.removeAttribute("aria-current");
+  });
+  closePop();  // 换页时锚点会被销毁，浮层必须一起收掉
   await render(name);
 }
 
@@ -1675,6 +2145,8 @@ pickerBtn.addEventListener("click", async () => {
 
 document.addEventListener("click", (e) => {
   if (!document.getElementById("picker").contains(e.target)) closePicker();
+  // 点浮层外面关闭浮层；点浮层里面（含"查看全部"按钮）不关
+  if (popEl && !popEl.contains(e.target)) closePop();
 });
 
 /* ---------------- 新建客户弹窗 ---------------- */
@@ -1683,7 +2155,13 @@ const modalBody = document.getElementById("modalBody");
 
 function closeModal() { modal.hidden = true; modalBody.innerHTML = ""; }
 modal.addEventListener("click", (e) => { if (e.target.dataset.close !== undefined) closeModal(); });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeModal(); closePicker(); } });
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  // 浮层是最"上层"的东西：有它就只关它，否则一次 Esc 会连带关掉底下的弹窗
+  if (popEl) { closePop({ restoreFocus: true }); return; }
+  closeModal();
+  closePicker();
+});
 
 document.getElementById("newClientBtn").addEventListener("click", () => {
   modalBody.innerHTML = `
@@ -1756,9 +2234,52 @@ document.getElementById("newClientBtn").addEventListener("click", () => {
   });
 });
 
+/* ---------------- 首访提示 ---------------- */
+// 只提示一次。localStorage 读写包 try：Safari 隐私模式下会抛异常，
+// 那时提示每次都出现（略烦但不致命），总比整个启动流程挂掉好。
+const FIRSTRUN_KEY = "aiea.termHintDismissed";
+
+function initFirstRunHint() {
+  const el = document.getElementById("firstRun");
+  if (!el) return;
+  let seen = false;
+  try { seen = localStorage.getItem(FIRSTRUN_KEY) === "1"; } catch (e) { seen = false; }
+  if (seen) return;
+
+  el.hidden = false;
+  document.getElementById("firstRunX").addEventListener("click", () => {
+    el.hidden = true;
+    try { localStorage.setItem(FIRSTRUN_KEY, "1"); } catch (e) { /* 无痕模式，忽略 */ }
+  });
+}
+
+/* ---------------- 全局：浮层跟随锚点 ---------------- */
+// 起初这里是"一滚就关"。那是错的：点击靠视口边缘的徽标时，浏览器会先把它
+// 滚进可视区，这个滚动紧接着把刚打开的浮层关掉——按钮看起来完全没反应。
+// 改成跟随重算，顺带消掉这个竞态；锚点滚出视口才关。
+let popRaf = 0;
+function reflowPop() {
+  if (!popEl || !popAnchor) return;
+  if (popRaf) return;
+  popRaf = requestAnimationFrame(() => {
+    popRaf = 0;
+    if (!popEl || !popAnchor) return;
+    const r = popAnchor.getBoundingClientRect();
+    // 锚点已经滚出视口：浮层留着就成了指向不明的孤儿
+    if (r.bottom < 0 || r.top > window.innerHeight) { closePop(); return; }
+    placePop(r);
+  });
+}
+window.addEventListener("scroll", reflowPop, { passive: true });
+window.addEventListener("resize", reflowPop);
+
 /* ---------------- 启动 ---------------- */
 (async function boot() {
   try {
+    // 术语表先加载：报告页渲染时要用它决定哪些词可点
+    await loadGlossary();
+    wireExplain(document.querySelector(".side"));
+    initFirstRunHint();
     const items = await reloadClients();
     const diagnosed = items.find((c) => c.status === "diagnosed") || items[0];
     if (diagnosed) {

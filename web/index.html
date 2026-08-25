@@ -94,17 +94,34 @@
         <svg viewBox="0 0 16 16" class="ico" aria-hidden="true"><path d="M1.5 8.5l3.5-4 3 3.2L11.5 3H14v10H1.5z"/></svg>
         <span>运行简报</span>
       </button>
+      <button class="nav-item" data-view="glossary">
+        <svg viewBox="0 0 16 16" class="ico" aria-hidden="true"><path d="M3 2h7a2 2 0 012 2v10H5a2 2 0 00-2 2zM6 5h5v1.3H6zM6 8h5v1.3H6z"/></svg>
+        <span>术语与标准</span>
+      </button>
     </nav>
 
     <div class="side-foot">
       <p class="side-foot-t">证据等级</p>
       <ul class="lvl">
-        <li><i class="lv lv-a">A</i><span>系统痕迹 · 点估+区间</span></li>
-        <li><i class="lv lv-b">B</i><span>多方交叉 · 仅区间</span></li>
-        <li><i class="lv lv-c">C</i><span>单方陈述 · 仅方向</span></li>
+        <li><button class="lvl-btn" data-scale="grade" data-grade="A" aria-expanded="false"
+              aria-label="查看 A 级证据的判定标准"><i class="lv lv-a">A</i><span>系统痕迹 · 点估+区间</span></button></li>
+        <li><button class="lvl-btn" data-scale="grade" data-grade="B" aria-expanded="false"
+              aria-label="查看 B 级证据的判定标准"><i class="lv lv-b">B</i><span>多方交叉 · 仅区间</span></button></li>
+        <li><button class="lvl-btn" data-scale="grade" data-grade="C" aria-expanded="false"
+              aria-label="查看 C 级证据的判定标准"><i class="lv lv-c">C</i><span>单方陈述 · 仅方向</span></button></li>
       </ul>
+      <button class="side-foot-more" data-view-link="glossary">术语与标准全表 \u203a</button>
     </div>
   </aside>
+
+  <!-- 首访提示：虚线下划线本身是很弱的暗示，不说一句没人会去点。只出现一次。
+       放在 .main 内而不是顶栏下方：顶栏是 position:fixed，压在它上面会吃掉"知道了"的点击。 -->
+  <div class="mainwrap">
+    <div class="firstrun" id="firstRun" hidden>
+      <svg viewBox="0 0 16 16" class="firstrun-ico" aria-hidden="true"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm.9 10.5H7.1V6.9h1.8zm0-5.9H7.1V4.2h1.8z"/></svg>
+      <p>看不懂的名词可以直接点：带<span class="firstrun-eg">虚线下划线</span>的词、以及 <span class="bdg bdg-a">A 级</span> 这类徽标都能点开判定标准。完整对照见左下角「术语与标准」。</p>
+      <button class="firstrun-x" id="firstRunX" aria-label="知道了，不再提示">知道了</button>
+    </div>
 
   <main class="main" id="stage">
     <div class="skeleton">
@@ -114,6 +131,7 @@
       <div class="sk-block"></div>
     </div>
   </main>
+  </div>
 </div>
 
 <div class="modal" id="modal" hidden>
