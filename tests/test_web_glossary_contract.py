@@ -212,3 +212,32 @@ def test_narrow_screen_offset_targets_the_element_that_owns_it():
         "≤1024px 下必须收窄 .mainwrap 的 margin-left。"
         "改 .main 是无效的——左偏移不在它身上，页面会被整体推出视口"
     )
+
+
+def test_readme_page_table_matches_actual_nav():
+    """README 里的页面清单必须与实际导航条目数一致。
+
+    本会话真实踩到的问题：新增「术语与标准」页之后，README 仍写着「9 个视图」，
+    而报告页清单表里漏了「改造效果」——文档和界面对不上，新人照 README 找不到页。
+    文档漂移没有任何自动信号，所以在这里钉住条目数。
+    """
+    readme = (WEB.parent / "README.md").read_text(encoding="utf-8")
+
+    nav_views = re.findall(r'data-view="([a-z]+)"', INDEX_HTML)
+    assert len(nav_views) == len(set(nav_views)), "导航里有重复的 data-view"
+
+    # 「报告里有什么」那张表只讲交付物页面；工作台三页（建档/采集/连接器）
+    # 在上面的工作流章节单独讲，不该重复列进这张表。
+    WORKBENCH = {"clients", "intake", "connectors"}
+    report_views = [v for v in nav_views if v not in WORKBENCH]
+
+    # README 的页面清单表：以 "| 0X " 或 "| 附 " / "| 系 " 开头的行
+    rows = re.findall(r"^\| (?:\d\d|附|系) [^|]+\|", readme, re.M)
+    assert len(rows) == len(report_views), (
+        f"README 页面清单 {len(rows)} 行，实际交付物页面 {len(report_views)} 个"
+        f"（导航 {len(nav_views)} 个减去工作台 {len(WORKBENCH)} 页）——文档与界面不一致"
+    )
+
+    # 别再出现写死的旧数字
+    for stale in ("9 个视图", "15 个条目"):
+        assert stale not in readme, f"README 仍写着过时的「{stale}」"
