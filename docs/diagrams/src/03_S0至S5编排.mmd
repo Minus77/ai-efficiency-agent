@@ -1,0 +1,18 @@
+flowchart LR
+    S0["S0 立项与口径"] --> S1["S1 业务地图采集"] --> S2["S2 任务级分解"] --> S3["S3 AI 适配性打分"] --> S4["S4 ROI 与可行性"] --> S5["S5 反评审与排序"]
+
+    S0 --> O0["SCOPE.md<br/>scope.json"]
+    S1 --> O1["materials/<br/>MATERIAL_REQUEST.md"]
+    S2 --> O2["task-cards/"]
+    S3 --> O3["feasibility/"]
+    S4 --> O4["roi/"]
+    S5 --> O5["FINDINGS.md<br/>COUNTER_REVIEW.md"]
+
+    G1{"无材料"} -.->|"409"| S1
+    G2{"无基线"} -.->|"422"| S4
+    S3 -.->|"证据不足不许进 S4"| GATE["阶段跃迁校验<br/>单阶段步数上限 20"]
+
+    classDef out fill:#dcfce7,stroke:#15803d,color:#0f172a
+    classDef gate fill:#fee2e2,stroke:#b91c1c,color:#0f172a
+    class O0,O1,O2,O3,O4,O5 out
+    class G1,G2,GATE gate

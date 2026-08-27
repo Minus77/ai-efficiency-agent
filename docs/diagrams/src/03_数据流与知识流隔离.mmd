@@ -1,0 +1,25 @@
+flowchart LR
+    M1["客户材料<br/>CSV Excel PDF 图片"] -->|"L0"| I1["intake 解析"]
+    M2["客户系统"] -->|"L1 只读"| I2["connector 拉取"]
+    I1 --> X["L0 / L1 交叉互校"]
+    I2 --> X
+    X --> EV["evidence 定级"]
+    EV --> DR["derive 场景推导<br/>聚簇算数字"]
+    DR --> FR["feasibility 打分<br/>roi 测算 纯函数"]
+    FR --> AG["agents 反评审<br/>独立上下文 不看推理链"]
+    AG --> GU["guardrails 最终输出校验<br/>守护 Agent 否决权"]
+    GU --> OUT["REPORT.json<br/>14 个视图<br/>trace 落盘"]
+
+    subgraph KN["知识流 与客户数据物理隔离"]
+        K1["公开检索"] --> K2["基准库 案例库"]
+        K3["客户诊断结论"] --> K4["去具体化检验"] --> K5["方法论库"]
+    end
+    K2 -.->|"检索注入 带出处"| DR
+    K5 -.->|"检索注入 带出处"| DR
+
+    RAW["客户原始数据"] -->|"永不进入任何索引"| BLOCK["禁止"]
+
+    classDef block fill:#fee2e2,stroke:#b91c1c,color:#0f172a
+    classDef know fill:#e0e7ff,stroke:#4338ca,color:#0f172a
+    class BLOCK,RAW block
+    class K1,K2,K3,K4,K5 know

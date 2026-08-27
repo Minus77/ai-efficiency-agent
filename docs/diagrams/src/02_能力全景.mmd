@@ -1,0 +1,21 @@
+flowchart LR
+    M1["客户建档<br/>多租户隔离"]
+    M2["数据接入<br/>L0 上传 / L1 只读连接器"]
+    M3["受理探测<br/>证据等级判定"]
+    M4["场景推导<br/>任务卡"]
+    M5["分级测算<br/>ROI 加七维可行性"]
+    M6["报告交付<br/>14 个视图"]
+    M7["效果衡量<br/>基线复测"]
+
+    M1 --> M2 --> M3 --> M4 --> M5 --> M6 --> M7
+
+    M3 --> G1["决定交付形态<br/>完整 / 限定 / 轻量"]
+    M5 --> G2["反评审与缺口<br/>3 条意见 · 3 项缺口"]
+    M6 --> G3["反馈采集<br/>逐场景确认"]
+
+    G3 -.->|"沉淀候选用例"| M4
+
+    classDef gate fill:#fef3c7,stroke:#b45309,color:#0f172a
+    classDef mod fill:#dbeafe,stroke:#1d4ed8,color:#0f172a
+    class M1,M2,M3,M4,M5,M6,M7 mod
+    class G1,G2,G3 gate

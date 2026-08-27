@@ -1,0 +1,29 @@
+flowchart LR
+    subgraph SRC["黄金集四来源 当前 12 例"]
+        G1["基线实测 2 至 3 例<br/>带专家标注真值 来自 Phase 0"]
+        G2["合成用例<br/>基于方法论构造虚拟企业"]
+        G3["即时反馈累积<br/>每次诊断逐场景确认自动沉淀"]
+        G4["失败重放<br/>生产误判转回归用例"]
+    end
+    GOLD["冻结黄金集<br/>永不参与学习"]
+    G1 --> GOLD
+    G2 --> GOLD
+    G3 --> GOLD
+    G4 --> GOLD
+
+    GOLD --> CHECK{"经验库每次变更后必跑"}
+    CHECK -->|"任一维度回退超 5%"| RB["拒绝该批更新并回滚"]
+    CHECK -->|"未回退"| OK["允许生效"]
+
+    subgraph FB["反馈采集三时点 不问准不准"]
+        T1["交付当场 逐场景确认口径"]
+        T2["落地过程中 记录实际投入"]
+        T3["落地后复测 回填真值"]
+    end
+    T1 --> G3
+    T3 --> G4
+
+    classDef frz fill:#e0e7ff,stroke:#4338ca,color:#0f172a
+    classDef bad fill:#fee2e2,stroke:#b91c1c,color:#0f172a
+    class GOLD frz
+    class RB bad

@@ -1,0 +1,31 @@
+flowchart LR
+    subgraph SRC["取证来源"]
+        R1["R1 时间戳导出"]
+        R4["R4 工时记录"]
+        R2["R2 轻量补数表"]
+        R3["R3 多方交叉"]
+        R5["R5 会议纪要"]
+    end
+
+    A["A 级<br/>单据或系统数据"]
+    B["B 级<br/>多方交叉且至少<br/>一路有客观痕迹"]
+    C["C 级<br/>单方陈述或基准外推"]
+
+    R1 --> A
+    R4 --> A
+    R2 --> B
+    R3 --> B
+    R5 --> C
+
+    A --> OA["点估加区间<br/>可进优先级矩阵正文"]
+    B --> OB["仅区间<br/>无点估"]
+    C --> OC["仅方向<br/>不给任何金额"]
+
+    R5 -.->|"禁止用于量化<br/>只识别有哪些流程"| C
+
+    classDef la fill:#dcfce7,stroke:#15803d,color:#0f172a
+    classDef lb fill:#fef3c7,stroke:#b45309,color:#0f172a
+    classDef lc fill:#fee2e2,stroke:#b91c1c,color:#0f172a
+    class A,OA la
+    class B,OB lb
+    class C,OC lc

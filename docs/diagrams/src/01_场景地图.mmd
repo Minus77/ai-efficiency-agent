@@ -1,0 +1,28 @@
+flowchart TD
+    ROOT["明辉家居建材 · 86 人<br/>3 个父场景 / 8 张子卡"]
+
+    P1["父场景一 客户咨询得到回复<br/>客服 · 月度 2822 分钟"]
+    P2["父场景二 月度账目对平<br/>财务 · 月度 2398 分钟"]
+    P3["父场景三 销售订单跟到交付<br/>销售 · 月度 2970 分钟"]
+
+    ROOT --> P1
+    ROOT --> P2
+    ROOT --> P3
+
+    P1 --> S1["微信咨询转录进工单<br/>A 级 · 批量 · 已量化"]
+    P1 --> S2["工单分类与优先级打标<br/>A 级 · 已量化"]
+    P1 --> S3["常见问题重复回答<br/>标灰 · 仅方向"]
+
+    P2 --> S4["供应商对账手工比对<br/>A 级 · 已量化"]
+    P2 --> S5["对账差异项追查<br/>缺 ERP 明细 · 仅方向"]
+    P2 --> S6["开票信息整理与核对<br/>A 级 · 已量化"]
+
+    P3 --> S7["跟单信息跨系统转抄<br/>缺台账导出 · 仅方向"]
+    P3 --> S8["报价历史查找与复用<br/>缺台账导出 · 仅方向"]
+
+    classDef quant fill:#dcfce7,stroke:#15803d,color:#0f172a
+    classDef dir fill:#fef3c7,stroke:#b45309,color:#0f172a
+    classDef parent fill:#e0e7ff,stroke:#4338ca,color:#0f172a
+    class P1,P2,P3 parent
+    class S1,S2,S4,S6 quant
+    class S3,S5,S7,S8 dir

@@ -1,0 +1,24 @@
+flowchart TB
+    L6["交付层 · 内部结论转业务语言 内部术语在此被拦住<br/>api.py 30 个接口　·　web/ 14 个视图　·　glossary.py 44 术语 18 个内部词禁上界面"]
+    L4["决策层<br/>derive.py 场景推导　·　feasibility.py 七维打分　·　roi.py 纯函数测算　·　agents.py 反评审与洞察"]
+    L3["编排层<br/>pipeline.py S0 至 S5 阶段门禁 上下文预算 读盘重建　·　diagnose.py 生产编排　·　seed.py 预置案例编排"]
+    L2["取证层<br/>evidence.py 分级与固定序裁决　·　tools/ 15 个工具　·　knowledge.py 三库物理隔离　·　measure.py 效果衡量"]
+    L1["数据接入层 · 全部只读<br/>intake.py L0 上传解析　·　connectors/ L1 只读连接器 26 个模板　·　connector_intake.py L0 与 L1 交叉互校"]
+    L5["护栏层 横切全层<br/>模型提议 策略裁决<br/><br/>输入校验<br/>推理校验<br/>工具入参<br/>工具出参<br/>最终输出<br/>规则层 步数与成本<br/>守护 Agent 否决权"]
+    DISK["workspace/客户/ 唯一真相源<br/>SCOPE.md · task-cards/ · evidence/ · trace/ · feedback/ · REPORT.json"]
+
+    L1 --> L2 --> L3 --> L4 --> L6
+    L3 --> DISK
+    DISK -.->|"恢复即读盘 不依赖历史上下文"| L3
+    L5 -.->|"每层出入口都过一遍"| L1
+    L5 -.-> L2
+    L5 -.-> L3
+    L5 -.-> L4
+    L5 -.-> L6
+
+    classDef layer fill:#dbeafe,stroke:#1d4ed8,color:#0f172a
+    classDef guard fill:#fee2e2,stroke:#b91c1c,color:#0f172a
+    classDef disk fill:#e0e7ff,stroke:#4338ca,color:#0f172a
+    class L1,L2,L3,L4,L6 layer
+    class L5 guard
+    class DISK disk

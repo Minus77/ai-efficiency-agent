@@ -1,0 +1,17 @@
+flowchart TB
+    S["Session 一次完整诊断 跨天可续"]
+    A["Agent span<br/>agent 名 自主度 阶段 S0 至 S5 结果"]
+    S --> A
+    A --> C1["LLM call<br/>输入与输出 token 缓存读取 结束原因"]
+    A --> C2["Tool call<br/>工具名 参数哈希 返回大小与状态"]
+    A --> C3["Retrieval<br/>查询文本 召回文档 向量分 命中或无接地"]
+    A --> C4["Memory op<br/>读写与淘汰 经验库命中与否"]
+    A --> C5["Guardrail<br/>哪一层 是否触发 采取动作"]
+    A --> C6["Evaluation<br/>评测名 分值 反评审裁决 忠实度"]
+    A --> C7["Sub-agent<br/>子 agent 标识 交接延迟"]
+
+    R["会话回放是首要调试手段<br/>必须能重建每次调用的确切上下文窗口<br/>确切工具调用与确切返回结果"]
+    S -.-> R
+
+    classDef span fill:#dbeafe,stroke:#1d4ed8,color:#0f172a
+    class C1,C2,C3,C4,C5,C6,C7 span

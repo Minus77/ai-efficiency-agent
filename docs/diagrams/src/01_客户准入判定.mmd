@@ -1,0 +1,17 @@
+flowchart TD
+    A{"客户有业务系统吗"}
+    A -->|"没有 · 全靠微信加纸质"| N1["拒接或转轻量咨询<br/>不出正式诊断报告"]
+    A -->|"有"| B{"能导出明细吗"}
+    B -->|"仅能导汇总数字"| N2["轻量咨询<br/>无任何金额"]
+    B -->|"能导明细"| C{"明细含时间戳吗"}
+    C -->|"无时间戳"| N3["限定诊断<br/>仅区间 ROI 无点估<br/>受理前书面告知"]
+    C -->|"含时间戳"| D{"人数在 20 至 200 吗"}
+    D -->|"是"| N4["正常受理<br/>完整诊断<br/>含分档 ROI 与回本周期"]
+    D -->|"否"| N5["可做但标注<br/>范围外 基准参考有限"]
+
+    classDef ok fill:#dcfce7,stroke:#15803d,color:#0f172a
+    classDef mid fill:#fef3c7,stroke:#b45309,color:#0f172a
+    classDef no fill:#fee2e2,stroke:#b91c1c,color:#0f172a
+    class N4 ok
+    class N3,N2,N5 mid
+    class N1 no
